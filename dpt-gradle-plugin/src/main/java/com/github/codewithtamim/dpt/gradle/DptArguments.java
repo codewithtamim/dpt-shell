@@ -11,14 +11,23 @@ final class DptArguments {
     private DptArguments() {}
 
     static List<String> build(Project project, DptExtension ext, File apk, String variantName) {
+        return build(
+                project,
+                ext,
+                apk,
+                variantName,
+                DptProtectConfigWriter.resolve(project, ext, variantName));
+    }
+
+    static List<String> build(
+            Project project, DptExtension ext, File apk, String variantName, String protectConfigPath) {
         List<String> args = new ArrayList<>();
         args.add("--" + DptCliNames.PACKAGE_FILE);
         args.add(apk.getAbsolutePath());
 
-        String protectConfig = PropertyMerge.resolveProtectConfig(project, ext);
-        if (protectConfig != null) {
+        if (protectConfigPath != null) {
             args.add("--" + DptCliNames.PROTECT_CONFIG);
-            args.add(protectConfig);
+            args.add(protectConfigPath);
         }
 
         if (PropertyMerge.mergeBoolean(project, "dpt.debuggable", ext.getDebuggable().get())) {

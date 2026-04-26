@@ -55,7 +55,18 @@ dpt {
     applyToDebug.set(false)
     applyToBundle.set(true)
 
-    protectConfig.set(file("${rootProject.projectDir}/dpt-protect.json"))
+    protect {
+        shellPackageName.set("<random>") // omit to default to <random> when any protect field is set
+        // appSignSha256.set("…") and dexSign.set("…") optional
+        signature {
+            keystore.set(file("${rootProject.projectDir}/release.jks"))
+            alias.set("key0")
+            storePassword.set("***")
+            keyPassword.set("***")
+        }
+    }
+    // Optional: protectConfig.set(file(".../dpt-protect.json")) or -Pdpt.protectConfig=... overrides protect { }.
+
     rulesFile.set(file("${rootProject.projectDir}/keep.rules"))
     outputDirectory.set(layout.buildDirectory.dir("outputs/dpt"))
     excludeAbi.set("armeabi-v7a,arm64-v8a,x86,x86_64")

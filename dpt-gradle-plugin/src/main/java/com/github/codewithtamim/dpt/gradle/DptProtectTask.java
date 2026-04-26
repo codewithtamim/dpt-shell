@@ -40,6 +40,7 @@ public class DptProtectTask extends DefaultTask {
     @TaskAction
     public void protect() {
         DptExtension ext = getProject().getExtensions().getByType(DptExtension.class);
+        String protectConfigPath = DptProtectConfigWriter.resolve(getProject(), ext, getVariantName());
         Path extractDir = getProject().getLayout().getBuildDirectory().dir("dpt-shell/runtime").get().getAsFile().toPath();
         try {
             DptRuntimeExtractor.extractTo(extractDir);
@@ -57,7 +58,8 @@ public class DptProtectTask extends DefaultTask {
                 getLogger().warn("dpt: skip missing package path {}", apk);
                 continue;
             }
-            List<String> appArgs = DptArguments.build(getProject(), ext, apk, getVariantName());
+            List<String> appArgs =
+                    DptArguments.build(getProject(), ext, apk, getVariantName(), protectConfigPath);
             getProject().exec(spec -> {
                 spec.setExecutable(javaExecutable.getAbsolutePath());
                 spec.setWorkingDir(new File(root));

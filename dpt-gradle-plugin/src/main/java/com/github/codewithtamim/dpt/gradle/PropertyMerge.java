@@ -58,7 +58,8 @@ final class PropertyMerge {
         return null;
     }
 
-    static String resolveProtectConfig(Project project, DptExtension ext) {
+    /** Explicit JSON path only: {@code -Pdpt.protectConfig} or {@code protectConfig} file; no DSL generation. */
+    static String resolveExplicitProtectConfig(Project project, DptExtension ext) {
         String fromProp = mergePath(project, "dpt.protectConfig", null);
         if (fromProp != null) {
             return fromProp;
