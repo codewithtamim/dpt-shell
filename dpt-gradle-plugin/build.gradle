@@ -31,25 +31,19 @@ def shellFilesMarker = rootProject.file('executable/shell-files/dex/classes.dex'
 
 def zipDptRuntime = tasks.register('zipDptRuntime', Zip) {
     group = 'build'
-    description = 'Bundles dpt.jar and shell-files for embedding in the Gradle plugin JAR. ' +
-            'Use -Pdpt.plugin.minimalRuntime to embed only dpt.jar (dev machines without NDK/CMake; unusable for real protection).'
+    description = 'Bundles executable/dpt.jar and executable/shell-files into dpt-runtime.zip for the plugin JAR.'
     archiveFileName = 'dpt-runtime.zip'
     destinationDirectory = layout.buildDirectory.dir('generated/dpt-runtime')
     duplicatesStrategy = DuplicatesStrategy.FAIL
 
     def executableDir = rootProject.layout.projectDirectory.dir('executable')
     dependsOn rootProject.project(':dpt').tasks.named('jar')
-
-    if (project.hasProperty('dpt.plugin.minimalRuntime')) {
-        from(executableDir.file('dpt.jar'))
-    } else {
-        from(executableDir.file('dpt.jar'))
-        from(executableDir.dir('shell-files')) {
-            into 'shell-files'
-        }
-        if (!shellFilesMarker.exists() || project.hasProperty('dpt.plugin.forceShellRebuild')) {
-            dependsOn rootProject.project(':shell').tasks.named('assembleRelease')
-        }
+    from(executableDir.file('dpt.jar'))
+    from(executableDir.dir('shell-files')) {
+        into 'shell-files'
+    }
+    if (!shellFilesMarker.exists() || project.hasProperty('dpt.plugin.forceShellRebuild')) {
+        dependsOn rootProject.project(':shell').tasks.named('assembleRelease')
     }
 }
 

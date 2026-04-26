@@ -1,10 +1,17 @@
 jdk:
   - openjdk17
 
-before_install:
-  - apt-get update -qq && apt-get install -y ninja-build || true
-  - yes | sdkmanager --licenses >/dev/null 2>&1 || true
-  - sdkmanager "platforms;android-36" "build-tools;35.0.0" "cmake;3.31.1" "ndk;26.3.11579264" >/dev/null
-
 install:
-  - ./gradlew :dpt-gradle-plugin:build :dpt-gradle-plugin:publishToMavenLocal --no-daemon --stacktrace
+  - |
+      set -e
+      git submodule update --init --recursive
+      mkdir -p "$HOME/.local/bin"
+      curl -fsSL https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip -o /tmp/ninja.zip
+      unzip -qo /tmp/ninja.zip -d "$HOME/.local/bin"
+      chmod +x "$HOME/.local/bin/ninja"
+      export PATH="$HOME/.local/bin:$PATH"
+      curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.1/cmake-3.31.1-linux-x86_64.tar.gz -o /tmp/cmake.tar.gz
+      tar xzf /tmp/cmake.tar.gz -C "$HOME/.local"
+      CMAKE_DIR="$HOME/.local/cmake-3.31.1-linux-x86_64"
+      echo "cmake.dir=$CMAKE_DIR" >> local.properties
+      ./gradlew :dpt-gradle-plugin:build :dpt-gradle-plugin:publishToMavenLocal --no-daemon --stacktrace

@@ -18,23 +18,15 @@ java -jar dpt.jar -f /path/to/android-package-file
 
 ### Manual builds
 
-**Full build** of this repo needs **JDK 17**, the **Android SDK**, and **CMake 3.31.1** (and NDK as used by AGP) so the `:shell` native code can compile. Install CMake from Android Studio (SDK Manager → SDK Tools → CMake 3.31.1) or:
+A full build of this repo needs JDK 17, the Android SDK, CMake 3.31.1, and the NDK version your AGP expects, so the `:shell` native code can compile. Install CMake from Android Studio (SDK Manager, SDK Tools, CMake 3.31.1) or run:
 
 ```shell
 sdkmanager "cmake;3.31.1"
 ```
 
-If you see `[CXX1300] CMake '3.31.1' was not found`, install that CMake package (and ensure `ANDROID_HOME` points at your SDK).
+If Gradle reports `CMake '3.31.1' was not found`, install that package and check that `ANDROID_HOME` points at the right SDK.
 
-**Without** CMake/NDK you can still build the Java CLI and the Gradle plugin (tests only):
-
-```shell
-./gradlew :dpt:build :dpt-gradle-plugin:build -Pdpt.plugin.minimalRuntime
-```
-
-That embeds only `dpt.jar` inside the plugin (no `shell-files`); use a normal full build before publishing or running real protection.
-
-**CI** (`.github/workflows`) runs **`./gradlew build`** with CMake/ninja and **never** passes `minimalRuntime`, so `:dpt-gradle-plugin` tests and the packaged plugin JAR both use the **full** `dpt-runtime.zip` (`dpt.jar` + `shell-files`), same as a real release.
+Building `:dpt-gradle-plugin` requires a full native toolchain: it packs `dpt.jar` and `shell-files` from `:shell:assembleRelease` (or an existing `executable/shell-files` tree). Use the published JitPack artifact if you only need the plugin without compiling this repo.
 
 ```shell
 git clone --recursive https://github.com/luoyesiqiu/dpt-shell
@@ -46,20 +38,13 @@ java -jar dpt.jar -f /path/to/android-package-file
 
 ### Gradle plugin (JitPack)
 
-Published from [codewithtamim/dpt-shell](https://github.com/codewithtamim/dpt-shell) via [JitPack](https://jitpack.io/#codewithtamim/dpt-shell). Prefer a **release tag** as the plugin version (for example the project’s `versionName` tag like `2.10.0` or `v2.10.0`, depending on how you tag).
+The Android Gradle plugin is published from [codewithtamim/dpt-shell](https://github.com/codewithtamim/dpt-shell) via [JitPack](https://jitpack.io/#codewithtamim/dpt-shell). Prefer a stable Git tag as the version string when you depend on it.
 
-#### How JitPack builds it (full runtime, not `minimalRuntime`)
+JitPack uses [jitpack.yml](jitpack.yml): it downloads CMake 3.31.1 and ninja (the default image cannot use `apt`/`sdkmanager` reliably), writes `cmake.dir` into `local.properties`, initializes git submodules, then runs `./gradlew :dpt-gradle-plugin:build`. Android Gradle Plugin still pulls the SDK platform, build-tools, and NDK as needed. Enable recursive submodules for the repo on jitpack.io if builds complain about missing native sources. The published plugin matches a full local build (`dpt.jar` plus `shell-files`) and runs `java -jar dpt.jar` like the CLI.
 
-[JitPack runs `jitpack.yml`](jitpack.yml), which installs the Android SDK pieces needed for **`:shell:assembleRelease`**, then runs **`./gradlew :dpt-gradle-plugin:build`** with **no** `-Pdpt.plugin.minimalRuntime`. That is the same wiring as a local full build: `:dpt:jar` produces `executable/dpt.jar`, the shell module fills `executable/shell-files/`, and the plugin task **`zipDptRuntime`** packs both into `dpt-runtime.zip` inside the published plugin JAR. Consumers still run **`java -jar dpt.jar …`** under the hood (same as the command line); JitPack is building those artifacts for you, not replacing them with a different code path.
+Coordinates: `com.github.codewithtamim:dpt-gradle-plugin:<version>`. Plugin id: `com.github.codewithtamim.dpt`.
 
-**Why not “only call `dpt` Java APIs” on JitPack?** The protector needs **`shell-files`** (the shell `classes.dex` and native `.so` libraries) on disk at runtime. Whether you invoke `Dpt.main` in-process or via CLI, those binaries must come from **building `:shell`** (or from shipping a prebuilt bundle). Calling APIs alone does not remove that dependency; embedding the result of `:shell:assembleRelease` keeps one self-contained Maven coordinate.
-
-**`-Pdpt.plugin.minimalRuntime`** is only a **local developer escape hatch** when your machine cannot compile native code (no CMake/NDK). Do **not** use it for JitPack or release builds; the artifact would be missing `shell-files` and could not protect APKs for real.
-
-**Maven coordinates:** `com.github.codewithtamim:dpt-gradle-plugin:<version>`  
-**Plugin id:** `com.github.codewithtamim.dpt`
-
-**`settings.gradle.kts`**
+settings.gradle.kts:
 
 ```kotlin
 pluginManagement {
@@ -72,7 +57,7 @@ pluginManagement {
 }
 ```
 
-**App module `build.gradle.kts`**
+App module build.gradle.kts:
 
 ```kotlin
 plugins {
@@ -82,8 +67,8 @@ plugins {
 
 dpt {
     enabled.set(true)
-    applyToRelease.set(true)   // default: run after packageRelease (and other non-debug variants)
-    applyToDebug.set(false)    // set true to protect debug APKs too
+    applyToRelease.set(true)
+    applyToDebug.set(false)
 
     protectConfig.set(file("${rootProject.projectDir}/dpt-protect.json"))
     rulesFile.set(file("${rootProject.projectDir}/keep.rules"))
@@ -101,7 +86,7 @@ dpt {
 }
 ```
 
-**Groovy**
+Groovy:
 
 ```gradle
 plugins {
@@ -116,7 +101,7 @@ dpt {
 }
 ```
 
-**Legacy `buildscript`**
+Legacy buildscript:
 
 ```gradle
 buildscript {
@@ -131,36 +116,15 @@ apply plugin: 'com.android.application'
 apply plugin: 'com.github.codewithtamim.dpt'
 ```
 
-#### Behavior
+When `enabled` is true, each variant that matches `applyToRelease` or `applyToDebug` gets a task named `dptProtect` plus the variant name (for example `dptProtectRelease`). The matching `package` task for that variant is finalized by it so `dpt` sees the same APK that packaging produced. Run `./gradlew dptVersion` to print the bundled `dpt.jar` version.
 
-- When `enabled` is true, each Android variant that passes the `applyToRelease` / `applyToDebug` filters registers a task `dptProtect<VariantName>` (for example `dptProtectRelease`). The corresponding **`package*`** task is **`finalizedBy`** that task, so the APK on disk matches what `dpt` reads (after packaging/signing steps for that variant).
-- **`dptVersion`** — runs the bundled `dpt.jar --version` (helpful to confirm what JitPack or your build embedded).
+DSL values in `dpt { }` are defaults. You can override them per invocation with project properties `-Pdpt.<name>=...` (booleans as true/false, paths as strings). Gradle file properties use `file(...)`; `-P` uses a path string.
 
-#### Option reference (CLI parity)
+Plugin-only options: `enabled` / `dpt.enabled` (default false), `applyToRelease` / `dpt.applyToRelease` (default true), `applyToDebug` / `dpt.applyToDebug` (default false).
 
-Values set in the `dpt { }` block are defaults. **Project properties** `-Pdpt.<name>=...` override the DSL for that build (booleans: `true` / `false`; paths: absolute or project-relative strings). File options in Gradle use `file(...)`; on the command line use a filesystem path string.
+CLI-aligned options (Kotlin name, then `-P` key, then default): `protectConfig` / `dpt.protectConfig` (unset), `debuggable` / `dpt.debuggable` (false), `disableAppComponentFactory` / `dpt.disableAppComponentFactory` (false), `dumpCode` / `dpt.dumpCode` (false), `excludeAbi` / `dpt.excludeAbi` (empty), `keepClasses` / `dpt.keepClasses` (false), `noisyLog` / `dpt.noisyLog` (false), `outputDirectory` or `dpt.output` (defaults to `build/outputs/dpt/<variant>` under the module), `rulesFile` / `dpt.rulesFile` (unset), `smaller` / `dpt.smaller` (false), `verifySign` / `dpt.verifySign` (false), `noSign` / `dpt.noSign` (false). The input APK is always the variant output; there is no DSL field for `-f`. For `--version` use the `dptVersion` task.
 
-| `dpt` CLI | Kotlin DSL | `-P` property | Default |
-|-----------|------------|---------------|---------|
-| *(plugin only)* | `enabled` | `dpt.enabled` | `false` |
-| *(plugin only)* | `applyToRelease` | `dpt.applyToRelease` | `true` |
-| *(plugin only)* | `applyToDebug` | `dpt.applyToDebug` | `false` |
-| `-c` / `--protect-config` | `protectConfig` | `dpt.protectConfig` | unset |
-| `--debug` | `debuggable` | `dpt.debuggable` | `false` |
-| `--disable-acf` | `disableAppComponentFactory` | `dpt.disableAppComponentFactory` | `false` |
-| `--dump-code` | `dumpCode` | `dpt.dumpCode` | `false` |
-| `-e` / `--exclude-abi` | `excludeAbi` | `dpt.excludeAbi` | `""` |
-| `-f` / `--package-file` | *(automatic)* | — | taken from the variant output APK |
-| `-K` / `--keep-classes` | `keepClasses` | `dpt.keepClasses` | `false` |
-| `--noisy-log` | `noisyLog` | `dpt.noisyLog` | `false` |
-| `-o` / `--output` | `outputDirectory` | `dpt.output` | `build/outputs/dpt/<variantName>` under the module |
-| `-r` / `--rules-file` | `rulesFile` | `dpt.rulesFile` | unset |
-| `-S` / `--smaller` | `smaller` | `dpt.smaller` | `false` |
-| `-vs` / `--verify-sign` | `verifySign` | `dpt.verifySign` | `false` |
-| `-x` / `--no-sign` | `noSign` | `dpt.noSign` | `false` |
-| `-v` / `--version` | use task `./gradlew dptVersion` | — | — |
-
-**Example (command line overrides)**
+Example:
 
 ```shell
 ./gradlew :app:assembleRelease \
@@ -169,8 +133,6 @@ Values set in the `dpt { }` block are defaults. **Project properties** `-Pdpt.<n
   -Pdpt.protectConfig=/absolute/path/protect.json \
   -Pdpt.output=/absolute/path/out
 ```
-
-When **building this repo locally**, the plugin uses the same packaging as JitPack unless you pass **`-Pdpt.plugin.minimalRuntime`** (embeds only `dpt.jar`; for machines without CMake/NDK, not suitable for real protection).
 
 ### Command line options
 
@@ -228,3 +190,4 @@ This project has not too many tests, be careful use in prod environment. Otherwi
 - [commons-cli](https://github.com/apache/commons-cli)
 - [dexmaker](https://android.googlesource.com/platform/external/dexmaker)
 - [Obfuscate](https://github.com/adamyaxley/Obfuscate)
+
