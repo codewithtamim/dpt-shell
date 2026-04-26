@@ -1,0 +1,10 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - apt-get update -qq && apt-get install -y ninja-build || true
+  - yes | sdkmanager --licenses >/dev/null 2>&1 || true
+  - sdkmanager "platforms;android-36" "build-tools;35.0.0" "cmake;3.31.1" "ndk;26.3.11579264" >/dev/null
+
+install:
+  - ./gradlew :dpt-gradle-plugin:build :dpt-gradle-plugin:publishToMavenLocal --no-daemon --stacktrace

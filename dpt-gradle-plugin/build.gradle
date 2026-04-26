@@ -1,0 +1,61 @@
+plugins {
+    id 'java-gradle-plugin'
+    id 'maven-publish'
+}
+
+java {
+    sourceCompatibility = rootProject.ext.dptJavaVersion
+    targetCompatibility = rootProject.ext.dptJavaVersion
+}
+
+group = 'com.github.codewithtamim'
+version = rootProject.ext.appVersionName
+
+dependencies {
+    compileOnly gradleApi()
+    compileOnly 'com.android.tools.build:gradle:8.10.0'
+    testImplementation gradleTestKit()
+    testImplementation 'junit:junit:4.13.2'
+}
+
+gradlePlugin {
+    plugins {
+        dpt {
+            id = 'com.github.codewithtamim.dpt'
+            implementationClass = 'com.github.codewithtamim.dpt.gradle.DptPlugin'
+        }
+    }
+}
+
+def shellFilesMarker = rootProject.file('executable/shell-files/dex/classes.dex')
+
+def zipDptRuntime = tasks.register('zipDptRuntime', Zip) {
+    group = 'build'
+    description = 'Bundles dpt.jar and shell-files for embedding in the Gradle plugin JAR. ' +
+            'Use -Pdpt.plugin.minimalRuntime to embed only dpt.jar (dev machines without NDK/CMake; unusable for real protection).'
+    archiveFileName = 'dpt-runtime.zip'
+    destinationDirectory = layout.buildDirectory.dir('generated/dpt-runtime')
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+
+    def executableDir = rootProject.layout.projectDirectory.dir('executable')
+    dependsOn rootProject.project(':dpt').tasks.named('jar')
+
+    if (project.hasProperty('dpt.plugin.minimalRuntime')) {
+        from(executableDir.file('dpt.jar'))
+    } else {
+        from(executableDir.file('dpt.jar'))
+        from(executableDir.dir('shell-files')) {
+            into 'shell-files'
+        }
+        if (!shellFilesMarker.exists() || project.hasProperty('dpt.plugin.forceShellRebuild')) {
+            dependsOn rootProject.project(':shell').tasks.named('assembleRelease')
+        }
+    }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    dependsOn(zipDptRuntime)
+    from(zipDptRuntime.map { it.archiveFile }) {
+        rename { 'dpt-runtime.zip' }
+    }
+}

@@ -14,6 +14,17 @@ import java.util.zip.Adler32;
  */
 public class FileUtils {
 
+    /**
+     * When set, {@link #getExecutablePath()} returns this directory (absolute path).
+     * Used by the Gradle plugin so {@code dpt.jar} and {@code shell-files/} can live in an extracted bundle.
+     */
+    public static final String EXECUTABLE_ROOT_PROPERTY = "dpt.executable.root";
+
+    /**
+     * Optional env override for the same directory as {@link #EXECUTABLE_ROOT_PROPERTY}.
+     */
+    public static final String EXECUTABLE_ROOT_ENV = "DPT_EXECUTABLE_ROOT";
+
     private static final String PIPE_PREFIX = "│   ";
     private static final String ELBOW_PREFIX = "└── ";
     private static final String T_PREFIX = "├── ";
@@ -58,6 +69,14 @@ public class FileUtils {
     }
 
     public static String getExecutablePath() {
+        String fromProp = System.getProperty(EXECUTABLE_ROOT_PROPERTY);
+        if (fromProp != null && !fromProp.isEmpty()) {
+            return new File(fromProp).getAbsolutePath();
+        }
+        String fromEnv = System.getenv(EXECUTABLE_ROOT_ENV);
+        if (fromEnv != null && !fromEnv.isEmpty()) {
+            return new File(fromEnv).getAbsolutePath();
+        }
         try {
             URL location = Dpt.class.getProtectionDomain().getCodeSource().getLocation();
             File jarFile = new File(location.toURI());
