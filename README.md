@@ -82,7 +82,7 @@ dpt {
 }
 ```
 
-APK builds run `dptProtect<Variant>` after `package*` (e.g. `dptProtectRelease`). App Bundle builds run `dptProtectBundle<Variant>` after `bundle*` (needs Android Gradle Plugin 8+). `./gradlew dptVersion` prints the bundled `dpt.jar` version. Booleans and paths can be overridden with `-Pdpt.<name>=...` (e.g. `-Pdpt.enabled=true`).
+APK builds run `dptProtect<Variant>` as a **finalizer of `assemble<Variant>`** (not `package*`), so signing finishes first and **Build → Generate Signed App Bundle or APK** in Android Studio still runs protection. Protected artifacts are written under `dpt.output` / `build/outputs/dpt/<variant>` (see `dpt { outputDirectory ... }`); the original APK in `build/outputs/apk/` is not replaced. App Bundle builds use `dptProtectBundle<Variant>` after `bundle*` (AGP 8+). `./gradlew dptVersion` prints the bundled `dpt.jar` version. Override options with `-Pdpt.<name>=...`.
 
 ### Command line options
 

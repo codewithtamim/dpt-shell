@@ -92,12 +92,12 @@ public class DptPlugin implements Plugin<Project> {
             task.setGroup("build");
             task.setDescription("Runs dpt protection on APK(s) for variant " + variant.getName() + ".");
             task.setVariantName(variant.getName());
-            task.dependsOn(variant.getPackageApplicationProvider());
+            task.dependsOn(variant.getAssembleProvider());
             for (BaseVariantOutput output : variant.getOutputs()) {
                 task.getApks().from(output.getOutputFile());
             }
         });
-        variant.getPackageApplicationProvider().configure(pkg -> pkg.finalizedBy(provider));
+        variant.getAssembleProvider().configure(assemble -> assemble.finalizedBy(provider));
     }
 
     /**
