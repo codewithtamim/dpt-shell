@@ -14,6 +14,7 @@ public abstract class DptExtension {
         getEnabled().convention(false);
         getApplyToRelease().convention(true);
         getApplyToDebug().convention(false);
+        getApplyToBundle().convention(true);
         getDebuggable().convention(false);
         getDisableAppComponentFactory().convention(false);
         getDumpCode().convention(false);
@@ -30,6 +31,12 @@ public abstract class DptExtension {
     public abstract Property<Boolean> getApplyToRelease();
 
     public abstract Property<Boolean> getApplyToDebug();
+
+    /**
+     * When true (default), the matching bundle task output (.aab) is passed to {@code dpt} for variants that already
+     * have a {@code dptProtect*} task. Set false to only protect APKs.
+     */
+    public abstract Property<Boolean> getApplyToBundle();
 
     public abstract RegularFileProperty getProtectConfig();
 

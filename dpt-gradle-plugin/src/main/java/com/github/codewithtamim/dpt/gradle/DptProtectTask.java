@@ -49,11 +49,12 @@ public class DptProtectTask extends DefaultTask {
         String root = extractDir.toAbsolutePath().toString();
         final File javaExecutable = JavaExecutable.resolve();
         for (File apk : getApks().getFiles()) {
-            if (!apk.getName().endsWith(".apk")) {
+            String n = apk.getName();
+            if (!n.endsWith(".apk") && !n.endsWith(".aab")) {
                 continue;
             }
             if (!apk.isFile()) {
-                getLogger().warn("dpt: skip missing APK path {}", apk);
+                getLogger().warn("dpt: skip missing package path {}", apk);
                 continue;
             }
             List<String> appArgs = DptArguments.build(getProject(), ext, apk, getVariantName());
@@ -64,7 +65,7 @@ public class DptProtectTask extends DefaultTask {
                 spec.args("-jar", "dpt.jar");
                 spec.args(appArgs);
             });
-            getLogger().lifecycle("dpt: finished protection for {}", apk.getName());
+            getLogger().lifecycle("dpt: finished protection for {}", n);
         }
     }
 }

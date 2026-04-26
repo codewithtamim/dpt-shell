@@ -73,6 +73,7 @@ dpt {
     enabled.set(true)
     applyToRelease.set(true)
     applyToDebug.set(false)
+    applyToBundle.set(true)
 
     protectConfig.set(file("${rootProject.projectDir}/dpt-protect.json"))
     rulesFile.set(file("${rootProject.projectDir}/keep.rules"))
@@ -120,13 +121,13 @@ apply plugin: 'com.android.application'
 apply plugin: 'com.github.codewithtamim.dpt-shell'
 ```
 
-When `enabled` is true, each variant that matches `applyToRelease` or `applyToDebug` gets a task named `dptProtect` plus the variant name (for example `dptProtectRelease`). The matching `package` task for that variant is finalized by it so `dpt` sees the same APK that packaging produced. Run `./gradlew dptVersion` to print the bundled `dpt.jar` version.
+When `enabled` is true, each variant that matches `applyToRelease` or `applyToDebug` gets a task named `dptProtect` plus the variant name (for example `dptProtectRelease`). The matching `package` task for that variant is finalized by it so `dpt` sees the same APK that packaging produced. If `applyToBundle` is true (default) and you use Android Gradle Plugin 8+, a second task `dptProtectBundle` plus the variant name (e.g. `dptProtectBundleRelease`) receives that variant’s `.aab` and the matching `bundle*` task (e.g. `bundleRelease`) is finalized by it—so `./gradlew :app:bundleRelease` runs protection on the App Bundle without forcing a bundle build during `./gradlew :app:assembleRelease`. Set `applyToBundle` / `-Pdpt.applyToBundle=false` to skip bundle tasks. Run `./gradlew dptVersion` to print the bundled `dpt.jar` version.
 
 DSL values in `dpt { }` are defaults. You can override them per invocation with project properties `-Pdpt.<name>=...` (booleans as true/false, paths as strings). Gradle file properties use `file(...)`; `-P` uses a path string.
 
-Plugin-only options: `enabled` / `dpt.enabled` (default false), `applyToRelease` / `dpt.applyToRelease` (default true), `applyToDebug` / `dpt.applyToDebug` (default false).
+Plugin-only options: `enabled` / `dpt.enabled` (default false), `applyToRelease` / `dpt.applyToRelease` (default true), `applyToDebug` / `dpt.applyToDebug` (default false), `applyToBundle` / `dpt.applyToBundle` (default true; `.aab` / `bundle*` integration requires AGP 8+).
 
-CLI-aligned options (Kotlin name, then `-P` key, then default): `protectConfig` / `dpt.protectConfig` (unset), `debuggable` / `dpt.debuggable` (false), `disableAppComponentFactory` / `dpt.disableAppComponentFactory` (false), `dumpCode` / `dpt.dumpCode` (false), `excludeAbi` / `dpt.excludeAbi` (empty), `keepClasses` / `dpt.keepClasses` (false), `noisyLog` / `dpt.noisyLog` (false), `outputDirectory` or `dpt.output` (defaults to `build/outputs/dpt/<variant>` under the module), `rulesFile` / `dpt.rulesFile` (unset), `smaller` / `dpt.smaller` (false), `verifySign` / `dpt.verifySign` (false), `noSign` / `dpt.noSign` (false). The input APK is always the variant output; there is no DSL field for `-f`. For `--version` use the `dptVersion` task.
+CLI-aligned options (Kotlin name, then `-P` key, then default): `protectConfig` / `dpt.protectConfig` (unset), `debuggable` / `dpt.debuggable` (false), `disableAppComponentFactory` / `dpt.disableAppComponentFactory` (false), `dumpCode` / `dpt.dumpCode` (false), `excludeAbi` / `dpt.excludeAbi` (empty), `keepClasses` / `dpt.keepClasses` (false), `noisyLog` / `dpt.noisyLog` (false), `outputDirectory` or `dpt.output` (defaults to `build/outputs/dpt/<variant>` under the module), `rulesFile` / `dpt.rulesFile` (unset), `smaller` / `dpt.smaller` (false), `verifySign` / `dpt.verifySign` (false), `noSign` / `dpt.noSign` (false). Inputs are the variant’s packaged APK(s) and, when enabled, its `.aab`; there is no DSL field for arbitrary `-f`. For `--version` use the `dptVersion` task.
 
 Example:
 
