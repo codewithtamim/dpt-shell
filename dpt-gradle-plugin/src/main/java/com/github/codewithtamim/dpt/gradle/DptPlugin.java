@@ -20,7 +20,33 @@ public class DptPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
         project.getExtensions().create("dpt", DptExtension.class);
+        registerAppBundleVariantsEarly(project);
         project.afterEvaluate(DptPlugin::configureAfterEvaluate);
+    }
+
+    private static void registerAppBundleVariantsEarly(Project project) {
+        Runnable register =
+                () -> {
+                    ApplicationAndroidComponentsExtension androidComponents =
+                            project.getExtensions().findByType(ApplicationAndroidComponentsExtension.class);
+                    if (androidComponents == null) {
+                        return;
+                    }
+                    androidComponents.onVariants(
+                            androidComponents.selector().all(),
+                            new Action<com.android.build.api.variant.ApplicationVariant>() {
+                                @Override
+                                public void execute(com.android.build.api.variant.ApplicationVariant v) {
+                                    DptExtension ext = project.getExtensions().getByType(DptExtension.class);
+                                    configureVariantAab(project, ext, v);
+                                }
+                            });
+                };
+        if (project.getPlugins().hasPlugin("com.android.application")) {
+            register.run();
+        } else {
+            project.getPlugins().withId("com.android.application", p -> register.run());
+        }
     }
 
     private static void configureAfterEvaluate(Project project) {
@@ -34,23 +60,14 @@ public class DptPlugin implements Plugin<Project> {
             project.getLogger().lifecycle("dpt: protection disabled (set dpt { enabled = true } or -Pdpt.enabled=true).");
             return;
         }
-        AppExtension android = project.getExtensions().getByType(AppExtension.class);
         ApplicationAndroidComponentsExtension androidComponents =
                 project.getExtensions().findByType(ApplicationAndroidComponentsExtension.class);
-        if (androidComponents != null) {
-            androidComponents.onVariants(
-                    androidComponents.selector().all(),
-                    new Action<com.android.build.api.variant.ApplicationVariant>() {
-                        @Override
-                        public void execute(com.android.build.api.variant.ApplicationVariant v) {
-                            configureVariantAab(project, ext, v);
-                        }
-                    });
-        } else {
+        if (androidComponents == null) {
             project.getLogger()
                     .warn(
                             "dpt: ApplicationAndroidComponentsExtension not found; AAB protection is skipped. Use Android Gradle Plugin 8+.");
         }
+        AppExtension android = project.getExtensions().getByType(AppExtension.class);
         android.getApplicationVariants().all(variant -> configureVariant(project, ext, variant));
         project.getTasks().register("dptVersion", DptVersionTask.class, t -> {
             t.setGroup("help");
@@ -88,9 +105,7 @@ public class DptPlugin implements Plugin<Project> {
      * {@code dptProtectBundle*} task is finalized by {@code bundle*} only.
      */
     private static void configureVariantAab(
-            Project project,
-            DptExtension ext,
-            com.android.build.api.variant.ApplicationVariant variant) {
+            Project project, DptExtension ext, com.android.build.api.variant.ApplicationVariant variant) {
         if (!PropertyMerge.mergeBoolean(project, "dpt.enabled", ext.getEnabled().get())) {
             return;
         }
