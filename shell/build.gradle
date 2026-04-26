@@ -167,7 +167,6 @@ afterEvaluate { Project project ->
         return
     }
 
-    def assembleTask = project.tasks.getByName("assemble")
     def assembleDebugTask = project.tasks.getByName("assembleDebug")
     def assembleReleaseTask = project.tasks.getByName("assembleRelease")
     def nativeDebugBuildTask = project.tasks.getByName("mergeDebugNativeLibs")
@@ -180,42 +179,21 @@ afterEvaluate { Project project ->
             "x86_64":"x86_64"
     ]
 
-    def list = project.gradle.startParameter.taskNames
-    if(list == null || list.size() == 0) {
-        return
+    // Always attach to the concrete tasks. Relying on startParameter.taskNames[0] breaks when the
+    // root build runs another task first (e.g. :dpt-gradle-plugin:build / JitPack): only
+    // assembleRelease runs, but the hook was on assemble, so executable/shell-files was never filled.
+    assembleReleaseTask.doLast {
+        afterAssembleCopy(project, archMap, false)
     }
-
-    def firstTaskName = list.get(0)
-
-    println("first task: " + firstTaskName)
-
-    def buildTask = assembleTask
-    def nativeBuildTask = nativeReleaseBuildTask
-    def debug = false
-    if(firstTaskName == "shell:assemble" || firstTaskName == "assemble") {
-        buildTask = assembleTask
-        nativeBuildTask = nativeReleaseBuildTask
-        debug = false
+    assembleDebugTask.doLast {
+        afterAssembleCopy(project, archMap, true)
     }
-    else if(firstTaskName == "shell:assembleRelease" || firstTaskName == "assembleRelease") {
-        buildTask = assembleReleaseTask
-        nativeBuildTask = nativeReleaseBuildTask
-        debug = false
+    nativeReleaseBuildTask.doLast {
+        afterNativeBuildCopy(project, archMap, false)
     }
-    else if(firstTaskName == "shell:assembleDebug" || firstTaskName == "assembleDebug") {
-        buildTask = assembleDebugTask
-        nativeBuildTask = nativeDebugBuildTask
-        debug = true
+    nativeDebugBuildTask.doLast {
+        afterNativeBuildCopy(project, archMap, true)
     }
-
-    buildTask.doLast {
-        afterAssembleCopy(project, archMap, debug)
-    }
-
-    nativeBuildTask.doLast {
-        afterNativeBuildCopy(project, archMap, debug)
-    }
-
 }
 
 dependencies {
