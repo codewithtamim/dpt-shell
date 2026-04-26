@@ -42,7 +42,9 @@ The Android Gradle plugin is published from [codewithtamim/dpt-shell](https://gi
 
 JitPack uses [jitpack.yml](jitpack.yml): it downloads CMake 3.31.1 and ninja (the default image cannot use `apt`/`sdkmanager` reliably), writes `cmake.dir` into `local.properties`, initializes git submodules, then runs `./gradlew :dpt-gradle-plugin:build`. Android Gradle Plugin still pulls the SDK platform, build-tools, and NDK as needed. Enable recursive submodules for the repo on jitpack.io if builds complain about missing native sources. The published plugin matches a full local build (`dpt.jar` plus `shell-files`) and runs `java -jar dpt.jar` like the CLI.
 
-Coordinates: `com.github.codewithtamim:dpt-gradle-plugin:<version>`. Plugin id: `com.github.codewithtamim.dpt`.
+JitPack uses Maven group `com.github.codewithtamim.dpt-shell` (GitHub user plus repo name). The published plugin id is chosen to match that: `com.github.codewithtamim.dpt-shell`. Gradle then publishes a marker `com.github.codewithtamim.dpt-shell:com.github.codewithtamim.dpt-shell.gradle.plugin` alongside the jar module `dpt-gradle-plugin`. See the [builds API](https://jitpack.io/api/builds/com.github.codewithtamim/dpt-shell/latest) for module names on a given tag.
+
+Use `id("com.github.codewithtamim.dpt-shell")` in `plugins { }` — not the colon form from JitPack’s “implementation” snippet. Do not use `implementation` for this; it is a plugin.
 
 settings.gradle.kts:
 
@@ -62,7 +64,7 @@ App module build.gradle.kts:
 ```kotlin
 plugins {
     id("com.android.application")
-    id("com.github.codewithtamim.dpt") version "<tag>"
+    id("com.github.codewithtamim.dpt-shell") version "<tag>"
 }
 
 dpt {
@@ -91,7 +93,7 @@ Groovy:
 ```gradle
 plugins {
     id 'com.android.application'
-    id 'com.github.codewithtamim.dpt' version '<tag>'
+    id 'com.github.codewithtamim.dpt-shell' version '<tag>'
 }
 
 dpt {
@@ -101,7 +103,7 @@ dpt {
 }
 ```
 
-Legacy buildscript:
+Legacy buildscript (JitPack group includes the repo name):
 
 ```gradle
 buildscript {
@@ -109,11 +111,11 @@ buildscript {
         maven { url 'https://jitpack.io' }
     }
     dependencies {
-        classpath 'com.github.codewithtamim:dpt-gradle-plugin:<tag>'
+        classpath 'com.github.codewithtamim.dpt-shell:dpt-gradle-plugin:<tag>'
     }
 }
 apply plugin: 'com.android.application'
-apply plugin: 'com.github.codewithtamim.dpt'
+apply plugin: 'com.github.codewithtamim.dpt-shell'
 ```
 
 When `enabled` is true, each variant that matches `applyToRelease` or `applyToDebug` gets a task named `dptProtect` plus the variant name (for example `dptProtectRelease`). The matching `package` task for that variant is finalized by it so `dpt` sees the same APK that packaging produced. Run `./gradlew dptVersion` to print the bundled `dpt.jar` version.

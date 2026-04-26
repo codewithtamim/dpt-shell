@@ -21,7 +21,7 @@ dependencies {
 gradlePlugin {
     plugins {
         dpt {
-            id = 'com.github.codewithtamim.dpt'
+            id = 'com.github.codewithtamim.dpt-shell'
             implementationClass = 'com.github.codewithtamim.dpt.gradle.DptPlugin'
         }
     }
