@@ -18,16 +18,6 @@ java -jar dpt.jar -f /path/to/android-package-file
 
 ### Manual builds
 
-A full build of this repo needs JDK 17, the Android SDK, CMake 3.31.1, and the NDK version your AGP expects, so the `:shell` native code can compile. Install CMake from Android Studio (SDK Manager, SDK Tools, CMake 3.31.1) or run:
-
-```shell
-sdkmanager "cmake;3.31.1"
-```
-
-If Gradle reports `CMake '3.31.1' was not found`, install that package and check that `ANDROID_HOME` points at the right SDK.
-
-Building `:dpt-gradle-plugin` requires a full native toolchain: it packs `dpt.jar` and `shell-files` from `:shell:assembleRelease` (or an existing `executable/shell-files` tree). Use the published JitPack artifact if you only need the plugin without compiling this repo.
-
 ```shell
 git clone --recursive https://github.com/luoyesiqiu/dpt-shell
 cd dpt-shell
@@ -38,15 +28,7 @@ java -jar dpt.jar -f /path/to/android-package-file
 
 ### Gradle plugin (JitPack)
 
-The Android Gradle plugin is published from [codewithtamim/dpt-shell](https://github.com/codewithtamim/dpt-shell) via [JitPack](https://jitpack.io/#codewithtamim/dpt-shell). Prefer a stable Git tag as the version string when you depend on it.
-
-JitPack uses [jitpack.yml](jitpack.yml): it downloads CMake 3.31.1 and ninja (the default image cannot use `apt`/`sdkmanager` reliably), writes `cmake.dir` into `local.properties`, initializes git submodules, then runs `./gradlew :dpt-gradle-plugin:build`. Android Gradle Plugin still pulls the SDK platform, build-tools, and NDK as needed. Enable recursive submodules for the repo on jitpack.io if builds complain about missing native sources. The published plugin matches a full local build (`dpt.jar` plus `shell-files`) and runs `java -jar dpt.jar` like the CLI.
-
-JitPack uses Maven group `com.github.codewithtamim.dpt-shell` (GitHub user plus repo name). The published plugin id is chosen to match that: `com.github.codewithtamim.dpt-shell`. Gradle then publishes a marker `com.github.codewithtamim.dpt-shell:com.github.codewithtamim.dpt-shell.gradle.plugin` alongside the jar module `dpt-gradle-plugin`. See the [builds API](https://jitpack.io/api/builds/com.github.codewithtamim/dpt-shell/latest) for module names on a given tag.
-
-Use `id("com.github.codewithtamim.dpt-shell")` in `plugins { }` — not the colon form from JitPack’s “implementation” snippet. Do not use `implementation` for this; it is a plugin.
-
-settings.gradle.kts:
+Use [JitPack](https://jitpack.io/#codewithtamim/dpt-shell) with the **app** module. In the root `settings.gradle.kts`, put JitPack in **pluginManagement** so `plugins { id("com.github.codewithtamim.dpt-shell") }` can resolve (adding JitPack only under `dependencyResolutionManagement` or a module `repositories` block is not enough for plugin resolution):
 
 ```kotlin
 pluginManagement {
@@ -54,14 +36,12 @@ pluginManagement {
         gradlePluginPortal()
         google()
         mavenCentral()
-        maven("https://jitpack.io")
+        maven(url = "https://jitpack.io")
     }
 }
 ```
 
-**If Gradle reports the plugin was not found and lists only** Gradle Central Plugin Repository, Google, and Maven Central **(JitPack is not in that list)**, then JitPack is not registered for **plugin** resolution. Adding `maven("https://jitpack.io")` only under `repositories { }` in a module `build.gradle.kts` or only under `dependencyResolutionManagement` does **not** apply to `plugins { id(...) }`. It must appear inside **`pluginManagement { repositories { ... } }`** in the **root** `settings.gradle.kts`, as above.
-
-App module build.gradle.kts:
+In the app module, apply the Android plugin and this plugin (replace `<tag>` with a release tag or commit):
 
 ```kotlin
 plugins {
@@ -78,7 +58,7 @@ dpt {
     protectConfig.set(file("${rootProject.projectDir}/dpt-protect.json"))
     rulesFile.set(file("${rootProject.projectDir}/keep.rules"))
     outputDirectory.set(layout.buildDirectory.dir("outputs/dpt"))
-    excludeAbi.set("x86,x86_64")
+    excludeAbi.set("armeabi-v7a,arm64-v8a,x86,x86_64")
 
     verifySign.set(false)
     noSign.set(false)
@@ -91,53 +71,7 @@ dpt {
 }
 ```
 
-Groovy:
-
-```gradle
-plugins {
-    id 'com.android.application'
-    id 'com.github.codewithtamim.dpt-shell' version '<tag>'
-}
-
-dpt {
-    enabled = true
-    applyToRelease = true
-    protectConfig = file("${rootProject.projectDir}/dpt-protect.json")
-}
-```
-
-Legacy buildscript (JitPack group includes the repo name):
-
-```gradle
-buildscript {
-    repositories {
-        maven { url 'https://jitpack.io' }
-    }
-    dependencies {
-        classpath 'com.github.codewithtamim.dpt-shell:dpt-gradle-plugin:<tag>'
-    }
-}
-apply plugin: 'com.android.application'
-apply plugin: 'com.github.codewithtamim.dpt-shell'
-```
-
-When `enabled` is true, each variant that matches `applyToRelease` or `applyToDebug` gets a task named `dptProtect` plus the variant name (for example `dptProtectRelease`). The matching `package` task for that variant is finalized by it so `dpt` sees the same APK that packaging produced. If `applyToBundle` is true (default) and you use Android Gradle Plugin 8+, a second task `dptProtectBundle` plus the variant name (e.g. `dptProtectBundleRelease`) receives that variant’s `.aab` and the matching `bundle*` task (e.g. `bundleRelease`) is finalized by it—so `./gradlew :app:bundleRelease` runs protection on the App Bundle without forcing a bundle build during `./gradlew :app:assembleRelease`. Set `applyToBundle` / `-Pdpt.applyToBundle=false` to skip bundle tasks. Run `./gradlew dptVersion` to print the bundled `dpt.jar` version.
-
-DSL values in `dpt { }` are defaults. You can override them per invocation with project properties `-Pdpt.<name>=...` (booleans as true/false, paths as strings). Gradle file properties use `file(...)`; `-P` uses a path string.
-
-Plugin-only options: `enabled` / `dpt.enabled` (default false), `applyToRelease` / `dpt.applyToRelease` (default true), `applyToDebug` / `dpt.applyToDebug` (default false), `applyToBundle` / `dpt.applyToBundle` (default true; `.aab` / `bundle*` integration requires AGP 8+).
-
-CLI-aligned options (Kotlin name, then `-P` key, then default): `protectConfig` / `dpt.protectConfig` (unset), `debuggable` / `dpt.debuggable` (false), `disableAppComponentFactory` / `dpt.disableAppComponentFactory` (false), `dumpCode` / `dpt.dumpCode` (false), `excludeAbi` / `dpt.excludeAbi` (empty), `keepClasses` / `dpt.keepClasses` (false), `noisyLog` / `dpt.noisyLog` (false), `outputDirectory` or `dpt.output` (defaults to `build/outputs/dpt/<variant>` under the module), `rulesFile` / `dpt.rulesFile` (unset), `smaller` / `dpt.smaller` (false), `verifySign` / `dpt.verifySign` (false), `noSign` / `dpt.noSign` (false). Inputs are the variant’s packaged APK(s) and, when enabled, its `.aab`; there is no DSL field for arbitrary `-f`. For `--version` use the `dptVersion` task.
-
-Example:
-
-```shell
-./gradlew :app:assembleRelease \
-  -Pdpt.enabled=true \
-  -Pdpt.verifySign=true \
-  -Pdpt.protectConfig=/absolute/path/protect.json \
-  -Pdpt.output=/absolute/path/out
-```
+APK builds run `dptProtect<Variant>` after `package*` (e.g. `dptProtectRelease`). App Bundle builds run `dptProtectBundle<Variant>` after `bundle*` (needs Android Gradle Plugin 8+). `./gradlew dptVersion` prints the bundled `dpt.jar` version. Booleans and paths can be overridden with `-Pdpt.<name>=...` (e.g. `-Pdpt.enabled=true`).
 
 ### Command line options
 
@@ -195,4 +129,3 @@ This project has not too many tests, be careful use in prod environment. Otherwi
 - [commons-cli](https://github.com/apache/commons-cli)
 - [dexmaker](https://android.googlesource.com/platform/external/dexmaker)
 - [Obfuscate](https://github.com/adamyaxley/Obfuscate)
-
