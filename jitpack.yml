@@ -4,6 +4,12 @@ jdk:
 install:
   - |
       set -e
+      git config --global --add safe.directory "$(pwd)"
+      rm -rf .git/modules
+      rm -rf shell/src/main/cpp/external/minizip-ng \
+        shell/src/main/cpp/external/bhook \
+        shell/src/main/cpp/external/Dobby \
+        shell/src/main/cpp/external/mbedtls
       git submodule update --init --recursive
       mkdir -p "$HOME/.local/bin"
       curl -fsSL https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip -o /tmp/ninja.zip
