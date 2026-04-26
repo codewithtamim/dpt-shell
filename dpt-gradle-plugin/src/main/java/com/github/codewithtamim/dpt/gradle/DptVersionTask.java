@@ -20,11 +20,10 @@ public class DptVersionTask extends DefaultTask {
         }
         String root = extractDir.toAbsolutePath().toString();
         final File javaExecutable = JavaExecutable.resolve();
-        getProject().javaexec(spec -> {
+        getProject().exec(spec -> {
             spec.setExecutable(javaExecutable.getAbsolutePath());
             spec.setWorkingDir(new File(root));
-            spec.jvmArgs("-D" + DptCliNames.EXECUTABLE_ROOT_PROPERTY + "=" + root);
-            spec.args("-jar", "dpt.jar", "--version");
+            spec.args("-D" + DptCliNames.EXECUTABLE_ROOT_PROPERTY + "=" + root, "-jar", "dpt.jar", "--version");
         });
     }
 }

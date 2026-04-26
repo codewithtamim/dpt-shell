@@ -57,10 +57,10 @@ public class DptProtectTask extends DefaultTask {
                 continue;
             }
             List<String> appArgs = DptArguments.build(getProject(), ext, apk, getVariantName());
-            getProject().javaexec(spec -> {
+            getProject().exec(spec -> {
                 spec.setExecutable(javaExecutable.getAbsolutePath());
                 spec.setWorkingDir(new File(root));
-                spec.jvmArgs("-D" + DptCliNames.EXECUTABLE_ROOT_PROPERTY + "=" + root);
+                spec.args("-D" + DptCliNames.EXECUTABLE_ROOT_PROPERTY + "=" + root);
                 spec.args("-jar", "dpt.jar");
                 spec.args(appArgs);
             });

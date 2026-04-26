@@ -59,6 +59,8 @@ pluginManagement {
 }
 ```
 
+**If Gradle reports the plugin was not found and lists only** Gradle Central Plugin Repository, Google, and Maven Central **(JitPack is not in that list)**, then JitPack is not registered for **plugin** resolution. Adding `maven("https://jitpack.io")` only under `repositories { }` in a module `build.gradle.kts` or only under `dependencyResolutionManagement` does **not** apply to `plugins { id(...) }`. It must appear inside **`pluginManagement { repositories { ... } }`** in the **root** `settings.gradle.kts`, as above.
+
 App module build.gradle.kts:
 
 ```kotlin
