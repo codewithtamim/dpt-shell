@@ -35,7 +35,6 @@ public class DptPlugin implements Plugin<Project> {
             return;
         }
         AppExtension android = project.getExtensions().getByType(AppExtension.class);
-        android.getApplicationVariants().all(variant -> configureVariant(project, ext, variant));
         ApplicationAndroidComponentsExtension androidComponents =
                 project.getExtensions().findByType(ApplicationAndroidComponentsExtension.class);
         if (androidComponents != null) {
@@ -52,6 +51,7 @@ public class DptPlugin implements Plugin<Project> {
                     .warn(
                             "dpt: ApplicationAndroidComponentsExtension not found; AAB protection is skipped. Use Android Gradle Plugin 8+.");
         }
+        android.getApplicationVariants().all(variant -> configureVariant(project, ext, variant));
         project.getTasks().register("dptVersion", DptVersionTask.class, t -> {
             t.setGroup("help");
             t.setDescription("Prints dpt.jar version bundled with the Gradle plugin.");
