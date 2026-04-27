@@ -1,6 +1,6 @@
 # dpt-shell
 
-[![](https://img.shields.io/github/license/luoyesiqiu/dpt-shell)](https://github.com/luoyesiqiu/dpt-shell/blob/main/LICENSE) [![](https://img.shields.io/github/downloads/luoyesiqiu/dpt-shell/total?color=blue)](https://github.com/luoyesiqiu/dpt-shell/releases/latest) [![](https://img.shields.io/github/issues-raw/luoyesiqiu/dpt-shell?color=red)](https://github.com/luoyesiqiu/dpt-shell/issues) ![](https://img.shields.io/badge/Android-5.0%2B-brightgreen)
+   
 
 English | [简体中文](./README.zh-CN.md) 
 
@@ -85,8 +85,6 @@ dpt {
 }
 ```
 
-APK builds run `dptProtect<Variant>` as a **finalizer of `assemble<Variant>`** (not `package*`), so signing finishes first and **Build → Generate Signed App Bundle or APK** in Android Studio still runs protection. Protected artifacts are written under `dpt.output` / `build/outputs/dpt/<variant>` (see `dpt { outputDirectory ... }`); the original APK in `build/outputs/apk/` is not replaced. By default, the plugin also **copies** each final `*_signed.apk` / `*_signed.aab` into `<rootProject>/build/dpt/<variant>/` so outputs are easy to find next to the repo root (`dpt { collectProtectedToRoot … }`, `collectOutputDirectory`; disable with `-Pdpt.collectToRoot=false`, custom parent dir with `-Pdpt.collectOutput=/path`). App Bundle builds use `dptProtectBundle<Variant>` after `bundle*` (AGP 8+). `./gradlew dptVersion` prints the bundled `dpt.jar` version. Override options with `-Pdpt.<name>=...`.
-
 ### Command line options
 
 ```text
@@ -143,3 +141,4 @@ This project has not too many tests, be careful use in prod environment. Otherwi
 - [commons-cli](https://github.com/apache/commons-cli)
 - [dexmaker](https://android.googlesource.com/platform/external/dexmaker)
 - [Obfuscate](https://github.com/adamyaxley/Obfuscate)
+
