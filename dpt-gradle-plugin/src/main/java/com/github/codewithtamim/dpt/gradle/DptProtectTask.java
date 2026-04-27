@@ -10,7 +10,9 @@ import org.gradle.api.tasks.TaskAction;
 import javax.inject.Inject;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 public class DptProtectTask extends DefaultTask {
@@ -68,6 +70,29 @@ public class DptProtectTask extends DefaultTask {
                 spec.args(appArgs);
             });
             getLogger().lifecycle("dpt: finished protection for {}", n);
+            maybeCollectProtectedArtifact(n);
+        }
+    }
+
+    private void maybeCollectProtectedArtifact(String inputFileName) {
+        if (!PropertyMerge.collectProtectedToRoot(getProject(), getProject().getExtensions().getByType(DptExtension.class))) {
+            return;
+        }
+        DptExtension ext = getProject().getExtensions().getByType(DptExtension.class);
+        File outDir = PropertyMerge.resolveOutputDirectory(getProject(), ext, getVariantName());
+        File protectedFile = new File(outDir, DptOutputNames.signedArtifactName(inputFileName));
+        if (!protectedFile.isFile()) {
+            getLogger().warn("dpt: protected output not found for collect (expected {})", protectedFile);
+            return;
+        }
+        File destDir = new File(PropertyMerge.resolveCollectOutputDirectory(getProject(), ext), getVariantName());
+        destDir.mkdirs();
+        Path dest = new File(destDir, protectedFile.getName()).toPath();
+        try {
+            Files.copy(protectedFile.toPath(), dest, StandardCopyOption.REPLACE_EXISTING);
+            getLogger().lifecycle("dpt: collected protected artifact to {}", dest);
+        } catch (IOException e) {
+            throw new GradleException("Failed to copy protected artifact to " + dest, e);
         }
     }
 }

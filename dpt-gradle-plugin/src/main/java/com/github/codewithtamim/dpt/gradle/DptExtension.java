@@ -26,6 +26,7 @@ public abstract class DptExtension {
         getVerifySign().convention(false);
         getNoSign().convention(false);
         getExcludeAbi().convention("");
+        getCollectProtectedToRoot().convention(true);
     }
 
     public abstract Property<Boolean> getEnabled();
@@ -70,6 +71,19 @@ public abstract class DptExtension {
     public abstract Property<Boolean> getNoisyLog();
 
     public abstract DirectoryProperty getOutputDirectory();
+
+    /**
+     * When true (default), after protection finishes the signed APK/AAB is copied to
+     * {@link #getCollectOutputDirectory()} (default: {@code <rootProject>/build/dpt/<variant>/}) so GUI builds are
+     * easy to find outside {@code app/build/outputs/...}.
+     */
+    public abstract Property<Boolean> getCollectProtectedToRoot();
+
+    /**
+     * Root-side folder for {@link #getCollectProtectedToRoot()}. If unset, uses {@code build/dpt} under the Gradle
+     * root project directory.
+     */
+    public abstract DirectoryProperty getCollectOutputDirectory();
 
     public abstract RegularFileProperty getRulesFile();
 

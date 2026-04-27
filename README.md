@@ -69,6 +69,9 @@ dpt {
 
     rulesFile.set(file("${rootProject.projectDir}/keep.rules"))
     outputDirectory.set(layout.buildDirectory.dir("outputs/dpt"))
+    // Default: also copy protected *_signed.apk / *_signed.aab under <rootProject>/build/dpt/<variant>/ (handy after Android Studio → Generate Signed APK / App Bundle).
+    // collectProtectedToRoot.set(false)
+    // collectOutputDirectory.set(rootProject.layout.projectDirectory.dir("build/dpt"))
     excludeAbi.set("armeabi-v7a,arm64-v8a,x86,x86_64")
 
     verifySign.set(false)
@@ -82,7 +85,7 @@ dpt {
 }
 ```
 
-APK builds run `dptProtect<Variant>` as a **finalizer of `assemble<Variant>`** (not `package*`), so signing finishes first and **Build → Generate Signed App Bundle or APK** in Android Studio still runs protection. Protected artifacts are written under `dpt.output` / `build/outputs/dpt/<variant>` (see `dpt { outputDirectory ... }`); the original APK in `build/outputs/apk/` is not replaced. App Bundle builds use `dptProtectBundle<Variant>` after `bundle*` (AGP 8+). `./gradlew dptVersion` prints the bundled `dpt.jar` version. Override options with `-Pdpt.<name>=...`.
+APK builds run `dptProtect<Variant>` as a **finalizer of `assemble<Variant>`** (not `package*`), so signing finishes first and **Build → Generate Signed App Bundle or APK** in Android Studio still runs protection. Protected artifacts are written under `dpt.output` / `build/outputs/dpt/<variant>` (see `dpt { outputDirectory ... }`); the original APK in `build/outputs/apk/` is not replaced. By default, the plugin also **copies** each final `*_signed.apk` / `*_signed.aab` into `<rootProject>/build/dpt/<variant>/` so outputs are easy to find next to the repo root (`dpt { collectProtectedToRoot … }`, `collectOutputDirectory`; disable with `-Pdpt.collectToRoot=false`, custom parent dir with `-Pdpt.collectOutput=/path`). App Bundle builds use `dptProtectBundle<Variant>` after `bundle*` (AGP 8+). `./gradlew dptVersion` prints the bundled `dpt.jar` version. Override options with `-Pdpt.<name>=...`.
 
 ### Command line options
 

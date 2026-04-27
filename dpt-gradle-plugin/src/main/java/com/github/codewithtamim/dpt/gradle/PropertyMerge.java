@@ -33,6 +33,35 @@ final class PropertyMerge {
         return extensionPath;
     }
 
+    static boolean collectProtectedToRoot(Project project, DptExtension ext) {
+        Object p = project.findProperty("dpt.collectToRoot");
+        if (p != null) {
+            if (p instanceof Boolean) {
+                return (Boolean) p;
+            }
+            return Boolean.parseBoolean(p.toString());
+        }
+        return ext.getCollectProtectedToRoot().get();
+    }
+
+    /**
+     * Parent directory for per-variant subfolders when collecting protected artifacts to the repo root.
+     */
+    static File resolveCollectOutputDirectory(Project project, DptExtension ext) {
+        Object p = project.findProperty("dpt.collectOutput");
+        if (p != null) {
+            String s = p.toString().trim();
+            if (!s.isEmpty()) {
+                File f = new File(s);
+                return f.isAbsolute() ? f : new File(project.getRootProject().getProjectDir(), s);
+            }
+        }
+        if (ext.getCollectOutputDirectory().isPresent()) {
+            return ext.getCollectOutputDirectory().get().getAsFile();
+        }
+        return new File(project.getRootProject().getProjectDir(), "build/dpt");
+    }
+
     static File resolveOutputDirectory(Project project, DptExtension ext, String variantName) {
         Object p = project.findProperty("dpt.output");
         if (p != null) {
