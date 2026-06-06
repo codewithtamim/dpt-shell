@@ -24,7 +24,6 @@ ShellConfig g_shell_config;
 
 static JNINativeMethod gMethods[] = {
         {"craoc", "(Ljava/lang/String;)V",                               (void *) callRealApplicationOnCreate},
-        {"craa",  "(Landroid/content/Context;Ljava/lang/String;)V",      (void *) callRealApplicationAttach},
         {"ia",    "()V", (void *) init_app},
         {"gap",   "()Ljava/lang/String;",         (void *) getSourceDirExport},
         {"gdp",   "()Ljava/lang/String;",         (void *) getCompressedDexesPathExport},
@@ -319,27 +318,24 @@ DPT_ENCRYPT void callRealApplicationOnCreate(JNIEnv *env, jclass, jstring realAp
 
 }
 
-DPT_ENCRYPT void callRealApplicationAttach(JNIEnv *env, jclass, jobject context,
-                                         jstring realApplicationClassName) {
-
-    jobject appInstance = getApplicationInstance(env,realApplicationClassName);
-
-    android_app_Application application(env,appInstance);
-    application.attach(context);
-
-    DLOGD("Application.attach() called!");
-
-}
-
 DPT_ENCRYPT jobject replaceApplication(JNIEnv *env, jclass klass, jstring realApplicationClassName){
 
-    jobject appInstance = getApplicationInstance(env, realApplicationClassName);
+    // replaceApplicationOnLoadedApk now creates the real Application via makeApplication()
+    // and calls attach() on it internally. Use that single instance everywhere to avoid
+    // the two-instance problem that caused SDK initialization state mismatches on API < 28.
+    jobject appInstance = replaceApplicationOnLoadedApk(env, klass, realApplicationClassName);
     if (appInstance == nullptr) {
-        DLOGW("getApplicationInstance fail!");
+        DLOGW("replaceApplicationOnLoadedApk returned null!");
         return nullptr;
     }
-    replaceApplicationOnLoadedApk(env,klass,appInstance);
-    replaceApplicationOnActivityThread(env,klass,appInstance);
+
+    // Cache the correct instance so callRealApplicationOnCreate can find it later.
+    if (g_realApplicationInstance != nullptr) {
+        env->DeleteGlobalRef(g_realApplicationInstance);
+    }
+    g_realApplicationInstance = env->NewGlobalRef(appInstance);
+
+    replaceApplicationOnActivityThread(env, klass, appInstance);
     DLOGD("replace application success");
     return appInstance;
 }
@@ -350,7 +346,7 @@ DPT_ENCRYPT void replaceApplicationOnActivityThread(JNIEnv *env,jclass __unused,
     DLOGD("setInitialApplication() called!");
 }
 
-DPT_ENCRYPT void replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused,jobject realApplication) {
+DPT_ENCRYPT jobject replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused, jstring realApplicationClassName) {
     android_app_ActivityThread activityThread(env);
 
     jobject mBoundApplicationObj = activityThread.getBoundApplication();
@@ -376,12 +372,13 @@ DPT_ENCRYPT void replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused,jobj
 
     android_content_pm_ApplicationInfo applicationInfo(env,ApplicationInfoObj);
 
-    char applicationName[128] = {0};
-    getClassName(env,realApplication, applicationName, ARRAY_LENGTH(applicationName));
-
-    DLOGD("applicationName = %s",applicationName);
+    // Get class name from the jstring parameter directly
+    const char *applicationNameChs = env->GetStringUTFChars(realApplicationClassName, nullptr);
+    DLOGD("applicationName = %s", applicationNameChs);
     char realApplicationNameChs[128] = {0};
-    parseClassName(applicationName,realApplicationNameChs);
+    parseClassName(applicationNameChs, realApplicationNameChs);
+    env->ReleaseStringUTFChars(realApplicationClassName, applicationNameChs);
+
     jstring realApplicationName = env->NewStringUTF(realApplicationNameChs);
     auto realApplicationNameGlobal = (jstring)env->NewGlobalRef(realApplicationName);
 
@@ -391,10 +388,12 @@ DPT_ENCRYPT void replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused,jobj
     applicationInfo.setClassName(realApplicationNameGlobal);
     appInfo.setClassName(realApplicationNameGlobal);
 
-    // call make application
-    loadedApk.makeApplication(JNI_FALSE,nullptr);
+    // makeApplication creates the real Application instance and calls attach() on it.
+    // Capture and return the newly created instance so callers can use the same object.
+    jobject newApp = loadedApk.makeApplication(JNI_FALSE, nullptr);
 
-    DLOGD("makeApplication() called!");
+    DLOGD("makeApplication() called, newApp = %p", newApp);
+    return newApp;
 }
 
 
@@ -500,12 +499,14 @@ void read_shell_config(JNIEnv *env) {
             g_shell_config.jni_class_name = shell_config.value("jni_cls_name", "");
             g_shell_config.app_sign_sha256 = shell_config.value("app_sign_sha256", "");
             g_shell_config.dex_sign = shell_config.value("dex_sign", "");
+            g_shell_config.insns_xor_key = shell_config.value("insns_xor_key", 0);
 
             DLOGD("application_name = %s", g_shell_config.application_name.c_str());
             DLOGD("application_component_factory = %s", g_shell_config.application_component_factory.c_str());
             DLOGD("jni_class_name = %s", g_shell_config.jni_class_name.c_str());
             DLOGD("app_sign_sha256 = %s", g_shell_config.app_sign_sha256.c_str());
             DLOGD("dex_sign = %s", g_shell_config.dex_sign.c_str());
+            DLOGD("insns_xor_key = 0x%x", g_shell_config.insns_xor_key);
 
         }
     }

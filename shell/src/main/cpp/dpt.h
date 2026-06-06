@@ -46,12 +46,10 @@ struct ShellConfig {
     std::string jni_class_name;
     std::string app_sign_sha256;
     std::string dex_sign;
+    uint32_t insns_xor_key = 0;
 };
 
 void callRealApplicationOnCreate(JNIEnv *env, jclass, jstring realApplicationClassName);
-
-void callRealApplicationAttach(JNIEnv *env, jclass, jobject context,
-                                         jstring realApplicationClassName);
 
 INIT_ARRAY_SECTION void init_dpt();
 void init_app(JNIEnv* env,jclass __unused);
@@ -64,7 +62,7 @@ void combineDexElements(JNIEnv* env, jclass __unused klass, jobject targetClassL
 void removeDexElements(JNIEnv* env,jclass __unused,jobject classLoader,jstring elementName);
 jobject replaceApplication(JNIEnv *env, jclass __unused, jstring originApplication);
 void replaceApplicationOnActivityThread(JNIEnv *env,jclass __unused, jobject realApplication);
-void replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused, jobject realApplication);
+jobject replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused, jstring realApplicationClassName);
 
 void veritySignature(JNIEnv *env);
 
