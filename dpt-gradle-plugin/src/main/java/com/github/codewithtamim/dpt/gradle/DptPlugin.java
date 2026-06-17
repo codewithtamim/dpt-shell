@@ -2,14 +2,11 @@ package com.github.codewithtamim.dpt.gradle;
 
 import com.android.build.api.artifact.SingleArtifact;
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension;
-import com.android.build.gradle.AppExtension;
-import com.android.build.gradle.api.ApplicationVariant;
-import com.android.build.gradle.api.BaseVariantOutput;
-import org.gradle.api.Action;
 import org.gradle.api.NonNullApi;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.RegularFile;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.TaskProvider;
@@ -20,28 +17,30 @@ public class DptPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
         project.getExtensions().create("dpt", DptExtension.class);
-        registerAppBundleVariantsEarly(project);
-        project.afterEvaluate(DptPlugin::configureAfterEvaluate);
+        registerVariants(project);
+        project.afterEvaluate(p -> {
+            p.getTasks().register("dptVersion", DptVersionTask.class, t -> {
+                t.setGroup("help");
+                t.setDescription("Prints dpt.jar version bundled with the Gradle plugin.");
+            });
+        });
     }
 
-    private static void registerAppBundleVariantsEarly(Project project) {
-        Runnable register =
-                () -> {
-                    ApplicationAndroidComponentsExtension androidComponents =
-                            project.getExtensions().findByType(ApplicationAndroidComponentsExtension.class);
-                    if (androidComponents == null) {
-                        return;
-                    }
-                    androidComponents.onVariants(
-                            androidComponents.selector().all(),
-                            new Action<com.android.build.api.variant.ApplicationVariant>() {
-                                @Override
-                                public void execute(com.android.build.api.variant.ApplicationVariant v) {
-                                    DptExtension ext = project.getExtensions().getByType(DptExtension.class);
-                                    configureVariantAab(project, ext, v);
-                                }
-                            });
-                };
+    private static void registerVariants(Project project) {
+        Runnable register = () -> {
+            ApplicationAndroidComponentsExtension androidComponents =
+                    project.getExtensions().findByType(ApplicationAndroidComponentsExtension.class);
+            if (androidComponents == null) {
+                return;
+            }
+            androidComponents.onVariants(
+                    androidComponents.selector().all(),
+                    v -> {
+                        DptExtension ext = project.getExtensions().getByType(DptExtension.class);
+                        configureVariantForApk(project, ext, v);
+                        configureVariantForAab(project, ext, v);
+                    });
+        };
         if (project.getPlugins().hasPlugin("com.android.application")) {
             register.run();
         } else {
@@ -49,34 +48,12 @@ public class DptPlugin implements Plugin<Project> {
         }
     }
 
-    private static void configureAfterEvaluate(Project project) {
-        if (!project.getPlugins().hasPlugin("com.android.application")) {
-            project.getLogger().warn("dpt: com.android.application not applied; skipping DPT integration.");
+    private static void configureVariantForApk(
+            Project project, DptExtension ext, com.android.build.api.variant.ApplicationVariant variant) {
+        if (!PropertyMerge.mergeBoolean(project, "dpt.enabled", ext.getEnabled().get())) {
             return;
         }
-        DptExtension ext = project.getExtensions().getByType(DptExtension.class);
-        boolean enabled = PropertyMerge.mergeBoolean(project, "dpt.enabled", ext.getEnabled().get());
-        if (!enabled) {
-            project.getLogger().lifecycle("dpt: protection disabled (set dpt { enabled = true } or -Pdpt.enabled=true).");
-            return;
-        }
-        ApplicationAndroidComponentsExtension androidComponents =
-                project.getExtensions().findByType(ApplicationAndroidComponentsExtension.class);
-        if (androidComponents == null) {
-            project.getLogger()
-                    .warn(
-                            "dpt: ApplicationAndroidComponentsExtension not found; AAB protection is skipped. Use Android Gradle Plugin 8+.");
-        }
-        AppExtension android = project.getExtensions().getByType(AppExtension.class);
-        android.getApplicationVariants().all(variant -> configureVariant(project, ext, variant));
-        project.getTasks().register("dptVersion", DptVersionTask.class, t -> {
-            t.setGroup("help");
-            t.setDescription("Prints dpt.jar version bundled with the Gradle plugin.");
-        });
-    }
-
-    private static void configureVariant(Project project, DptExtension ext, ApplicationVariant variant) {
-        String buildType = variant.getBuildType().getName();
+        String buildType = variant.getBuildType();
         boolean isDebug = "debug".equals(buildType);
         if (isDebug) {
             if (!PropertyMerge.mergeBoolean(project, "dpt.applyToDebug", ext.getApplyToDebug().get())) {
@@ -87,24 +64,24 @@ public class DptPlugin implements Plugin<Project> {
                 return;
             }
         }
-        String taskName = "dptProtect" + capitalize(variant.getName());
+        String vn = variant.getName();
+        String taskName = "dptProtect" + capitalize(vn);
+        String assembleTaskName = "assemble" + capitalize(vn);
+        if (project.getTasks().findByName(assembleTaskName) == null) {
+            return;
+        }
         TaskProvider<DptProtectTask> provider = project.getTasks().register(taskName, DptProtectTask.class, task -> {
             task.setGroup("build");
-            task.setDescription("Runs dpt protection on APK(s) for variant " + variant.getName() + ".");
-            task.setVariantName(variant.getName());
-            task.dependsOn(variant.getAssembleProvider());
-            for (BaseVariantOutput output : variant.getOutputs()) {
-                task.getApks().from(output.getOutputFile());
-            }
+            task.setDescription("Runs dpt protection on APK(s) for variant " + vn + ".");
+            task.setVariantName(vn);
+            Provider<Directory> apkDir = variant.getArtifacts().get(SingleArtifact.APK.INSTANCE);
+            task.getApks().from(apkDir.map(d -> d.getAsFileTree()));
         });
-        variant.getAssembleProvider().configure(assemble -> assemble.finalizedBy(provider));
+        TaskProvider<Task> assembleTask = project.getTasks().named(assembleTaskName);
+        assembleTask.configure(assemble -> assemble.finalizedBy(provider));
     }
 
-    /**
-     * Separate from {@link #configureVariant} so {@code assemble*} does not force producing an {@code .aab}. The
-     * {@code dptProtectBundle*} task is finalized by {@code bundle*} only.
-     */
-    private static void configureVariantAab(
+    private static void configureVariantForAab(
             Project project, DptExtension ext, com.android.build.api.variant.ApplicationVariant variant) {
         if (!PropertyMerge.mergeBoolean(project, "dpt.enabled", ext.getEnabled().get())) {
             return;
@@ -112,7 +89,8 @@ public class DptPlugin implements Plugin<Project> {
         if (!PropertyMerge.mergeBoolean(project, "dpt.applyToBundle", ext.getApplyToBundle().get())) {
             return;
         }
-        boolean isDebug = "debug".equals(variant.getBuildType());
+        String buildType = variant.getBuildType();
+        boolean isDebug = "debug".equals(buildType);
         if (isDebug) {
             if (!PropertyMerge.mergeBoolean(project, "dpt.applyToDebug", ext.getApplyToDebug().get())) {
                 return;
