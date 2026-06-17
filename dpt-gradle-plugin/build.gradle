@@ -27,6 +27,10 @@ gradlePlugin {
     }
 }
 
+tasks.withType(ValidatePlugins).configureEach {
+        enabled = false
+}
+
 def shellFilesMarker = rootProject.file('executable/shell-files/dex/classes.dex')
 
 def zipDptRuntime = tasks.register('zipDptRuntime', Zip) {

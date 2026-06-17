@@ -6,6 +6,7 @@ import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.process.ExecOperations;
 
 import javax.inject.Inject;
 import java.io.File;
@@ -15,10 +16,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
 
-public class DptProtectTask extends DefaultTask {
+public abstract class DptProtectTask extends DefaultTask {
 
     private final ConfigurableFileCollection apks;
     private String variantName;
+
+    @Inject
+    protected abstract ExecOperations getExecOperations();
 
     @Inject
     public DptProtectTask() {
@@ -62,7 +66,7 @@ public class DptProtectTask extends DefaultTask {
             }
             List<String> appArgs =
                     DptArguments.build(getProject(), ext, apk, getVariantName(), protectConfigPath);
-            getProject().exec(spec -> {
+            getExecOperations().exec(spec -> {
                 spec.setExecutable(javaExecutable.getAbsolutePath());
                 spec.setWorkingDir(new File(root));
                 spec.args("-D" + DptCliNames.EXECUTABLE_ROOT_PROPERTY + "=" + root);
