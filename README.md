@@ -57,7 +57,10 @@ dpt {
 
     protect {
         shellPackageName.set("<random>") // omit to default to <random> when any protect field is set
-        // appSignSha256.set("…") and dexSign.set("…") optional
+        // Extra certs, comma-separated. With verifySign, the upload keystore cert is included too.
+        // The shell stops the app unless the installed certificate matches one of them.
+        // appSignSha256.set("30:63:A9:0F:…")
+        // dexSign.set("…") optional
         signature {
             keystore.set(file("${rootProject.projectDir}/release.jks"))
             alias.set("key0")
@@ -122,8 +125,9 @@ usage: java -jar dpt.jar [option] -f <package_file>
                              smaller app size.
  -v,--version                Show program's version number.
  -vs,--verify-sign           Enable runtime app signature verification.
-                             The certificate SHA-256 is computed
-                             automatically from the signing keystore.
+                             Allows the signing keystore certificate and
+                             any app_sign_sha256 values. Stops the app if
+                             the installed certificate matches none of them.
  -x,--no-sign                Do not sign package.
 ```
 

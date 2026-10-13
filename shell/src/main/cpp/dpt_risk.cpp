@@ -197,6 +197,49 @@ DPT_ENCRYPT void detectRisk() {
     pthread_create(&t, nullptr, detectRiskOnThread, nullptr);
 }
 
+static bool isSignHex(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+static bool tokenMatchesSha256(const char *actual, const char *token, size_t tokenLen) {
+    char compact[64];
+    size_t n = 0;
+    for (size_t i = 0; i < tokenLen; i++) {
+        char c = token[i];
+        if (c == ':' || c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            continue;
+        }
+        if (!isSignHex(c) || n >= 64) {
+            return false;
+        }
+        compact[n++] = c;
+    }
+    if (n != 64) {
+        return false;
+    }
+    return dpt_strncasecmp(actual, compact, 64) == 0;
+}
+
+// expectedList is one SHA-256 or several separated by comma or semicolon.
+// Colon-separated Play Console fingerprints are accepted inside each entry.
+static bool signatureInAllowList(const char *actual, const char *expectedList) {
+    if (actual == nullptr || expectedList == nullptr) {
+        return false;
+    }
+    const char *start = expectedList;
+    for (const char *p = expectedList;; p++) {
+        if (*p == ',' || *p == ';' || *p == '\0') {
+            if (tokenMatchesSha256(actual, start, static_cast<size_t>(p - start))) {
+                return true;
+            }
+            if (*p == '\0') {
+                return false;
+            }
+            start = p + 1;
+        }
+    }
+}
+
 DPT_ENCRYPT void verifyAppSignature(JNIEnv *env, jobject context, const char *expectedSha256) {
     static std::string actual = {};
     if (context == nullptr || expectedSha256 == nullptr || strlen(expectedSha256) == 0) {
@@ -205,7 +248,7 @@ DPT_ENCRYPT void verifyAppSignature(JNIEnv *env, jobject context, const char *ex
     }
 
     if(!actual.empty()) {
-        if (dpt_strncasecmp(actual.c_str(), expectedSha256, 64) != 0) {
+        if (!signatureInAllowList(actual.c_str(), expectedSha256)) {
             DLOGW("signature cache verification failed, expected: %s actual: %s", expectedSha256, actual.c_str());
             dpt_crash();
         }
@@ -300,7 +343,7 @@ DPT_ENCRYPT void verifyAppSignature(JNIEnv *env, jobject context, const char *ex
 
     actual.assign(sha256Hex);
 
-    if (dpt_strncasecmp(sha256Hex, expectedSha256, 64) != 0) {
+    if (!signatureInAllowList(sha256Hex, expectedSha256)) {
         DLOGW("signature verification failed, expected: %s actual: %s", expectedSha256, sha256Hex);
         dpt_crash();
     }

@@ -63,8 +63,9 @@ usage: java -jar dpt.jar [option] -f <package_file>
                              smaller app size.
  -v,--version                Show program's version number.
  -vs,--verify-sign           Enable runtime app signature verification.
-                             The certificate SHA-256 is computed
-                             automatically from the signing keystore.
+                             Allows the signing keystore certificate and
+                             any app_sign_sha256 values. Stops the app if
+                             the installed certificate matches none of them.
  -x,--no-sign                Do not sign package.
 ```
 

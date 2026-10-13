@@ -46,6 +46,7 @@ import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1042,6 +1043,34 @@ public abstract class AndroidPackage {
         return null;
     }
 
+    /**
+     * Union of the signing-keystore certificate and any extra fingerprints from protect config.
+     * Entries may be lowercase hex or colon-separated, separated by comma or semicolon.
+     */
+    static String mergeAllowedSignSha256(String computed, String configured) {
+        LinkedHashSet<String> hashes = new LinkedHashSet<>();
+        collectSignSha256(hashes, computed);
+        collectSignSha256(hashes, configured);
+        return String.join(",", hashes);
+    }
+
+    private static void collectSignSha256(LinkedHashSet<String> out, String raw) {
+        if (raw == null || raw.isBlank()) {
+            return;
+        }
+        for (String part : raw.split("[,;]+")) {
+            String hex = part.replace(":", "").replaceAll("\\s+", "").toLowerCase(Locale.US);
+            if (hex.isEmpty()) {
+                continue;
+            }
+            if (hex.matches("[0-9a-f]{64}")) {
+                out.add(hex);
+            } else {
+                LogUtils.warn("Ignoring certificate SHA-256 that is not 64 hex digits: %s", part.trim());
+            }
+        }
+    }
+
     private String computeSignatureSha256() {
         ShellConfig shellConfig = ShellConfig.getInstance();
         ShellConfig.SignatureConfig sigConfig = shellConfig.getSignatureConfig();
@@ -1123,14 +1152,13 @@ public abstract class AndroidPackage {
         // Merge CLI flags into config-file flags (each bit = one switch)
         shellConfig.setRiskCheckFlags(shellConfig.getRiskCheckFlags() | getRiskCheckFlags());
 
-        if (isVerifySign()) {
-            String sha256 = computeSignatureSha256();
-            if (sha256 != null) {
-                shellConfig.setAppSignSha256(sha256);
-                LogUtils.info("Signature verification enabled, SHA-256: " + sha256);
-            } else {
-                LogUtils.error("Failed to compute certificate SHA-256, signature verification disabled.");
-            }
+        String computed = isVerifySign() ? computeSignatureSha256() : null;
+        String allowed = mergeAllowedSignSha256(computed, shellConfig.getAppSignSha256());
+        if (!allowed.isEmpty()) {
+            shellConfig.setAppSignSha256(allowed);
+            LogUtils.info("Signature verification enabled, allowed SHA-256: " + allowed);
+        } else if (isVerifySign()) {
+            LogUtils.error("Failed to compute certificate SHA-256, signature verification disabled.");
         }
 
         JunkCodeGenerator.generateJunkCodeDex(new File(getJunkCodeDexPath()));
