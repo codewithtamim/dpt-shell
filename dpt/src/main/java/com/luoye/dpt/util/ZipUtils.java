@@ -42,6 +42,23 @@ public class ZipUtils {
             "assets/" + Const.KEY_CODE_ITEM_STORE_NAME
     );
 
+    private static final String META_INF_NAME = "META-INF";
+
+    /**
+     * Signature files under META-INF must be dropped before re-sign,
+     * but META-INF/services (ServiceLoader) and other resources must be kept.
+     */
+    private static boolean isSignatureMetaInfFile(String entryName) {
+        String name = entryName.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        String fileName = slash >= 0 ? name.substring(slash + 1) : name;
+        String upper = fileName.toUpperCase(Locale.US);
+        return upper.equals("MANIFEST.MF")
+                || upper.endsWith(".SF")
+                || upper.endsWith(".RSA")
+                || upper.endsWith(".DSA")
+                || upper.endsWith(".EC");
+    }
 
     /**
      * don not compress file list
@@ -64,18 +81,14 @@ public class ZipUtils {
         if (inputStream == null) {
             throw new IOException("cannot get resource:" + resourcePath);
         }
-        BufferedInputStream in = null;
-        BufferedOutputStream out = null;
         File distFile = new File(distPath);
         if (!distFile.getParentFile()
                      .exists()) {
             distFile.getParentFile()
                     .mkdirs();
         }
-        try {
-            in = new BufferedInputStream(inputStream);
-            out = new BufferedOutputStream(new FileOutputStream(distFile));
-
+        try (BufferedInputStream in = new BufferedInputStream(inputStream);
+             BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(distFile))) {
             int len = -1;
             byte[] b = new byte[1024];
             while ((len = in.read(b)) != -1) {
@@ -83,9 +96,6 @@ public class ZipUtils {
             }
         } catch (IOException e) {
             e.printStackTrace();
-        } finally {
-            IoUtils.close(out);
-            IoUtils.close(in);
         }
     }
 
@@ -225,12 +235,15 @@ public class ZipUtils {
      * Unzip a file
      */
     public static void extractFile(String zipFilePath, String fileName, String destDir) {
-        ZipFile zipFile = new ZipFile(zipFilePath);
+        ZipFile zipFile = null;
         try {
+            zipFile = new ZipFile(zipFilePath);
             FileHeader fileHeader = zipFile.getFileHeader(fileName);
             zipFile.extractFile(fileHeader, destDir);
         } catch (ZipException e) {
             e.printStackTrace();
+        } finally {
+            IoUtils.close(zipFile);
         }
     }
 
@@ -239,11 +252,12 @@ public class ZipUtils {
      * Compress to common zip file
      */
     public static void compress(List<File> files, String destFile, Map<String, CompressionMethod> rulesMap) {
-        ZipFile zipFile = new ZipFile(destFile);
         if (files == null) {
             return;
         }
+        ZipFile zipFile = null;
         try {
+            zipFile = new ZipFile(destFile);
             for (File f : files) {
                 ZipParameters zipParameters = new ZipParameters();
                 if(rulesMap != null) {
@@ -262,6 +276,8 @@ public class ZipUtils {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            IoUtils.close(zipFile);
         }
     }
 
@@ -272,19 +288,19 @@ public class ZipUtils {
      * @param dirPath unzip dir path
      */
     public static void unZip(String zipPath, String dirPath) {
+        java.util.zip.ZipFile zipFile = null;
         try {
             File zip = new File(zipPath);
             File dir = new File(dirPath);
             if (dir.exists()) {
                 FileUtils.deleteRecurse(dir);
             }
-            java.util.zip.ZipFile zipFile = new java.util.zip.ZipFile(zip);
+            zipFile = new java.util.zip.ZipFile(zip);
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry zipEntry = entries.nextElement();
                 String name = zipEntry.getName();
-                if (name.equals("META-INF/CERT.RSA") || name.equals("META-INF/CERT.SF")
-                        || name.equals("META-INF/MANIFEST.MF")) {
+                if (name.startsWith("META-INF/") && isSignatureMetaInfFile(name)) {
                     continue;
                 }
                 if (!zipEntry.isDirectory()) {
@@ -311,20 +327,20 @@ public class ZipUtils {
                     if (zipEntry.getCompressedSize() == zipEntry.getSize()) {
                         doNotCompress.add(file.getAbsolutePath().replace(dir.getAbsolutePath() + File.separator, ""));
                     }
-                    FileOutputStream fos = new FileOutputStream(file);
-                    InputStream is = zipFile.getInputStream(zipEntry);
-                    byte[] buffer = new byte[1024];
-                    int len;
-                    while ((len = is.read(buffer)) != -1) {
-                        fos.write(buffer, 0, len);
+                    try (FileOutputStream fos = new FileOutputStream(file);
+                         InputStream is = zipFile.getInputStream(zipEntry)) {
+                        byte[] buffer = new byte[1024];
+                        int len;
+                        while ((len = is.read(buffer)) != -1) {
+                            fos.write(buffer, 0, len);
+                        }
                     }
-                    is.close();
-                    fos.close();
                 }
             }
-            zipFile.close();
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            IoUtils.close(zipFile);
         }
     }
 
@@ -338,13 +354,14 @@ public class ZipUtils {
         if(smaller) {
             doNotCompress.removeAll(biggerFileList);
         }
+        ZipOutputStream zos = null;
         try {
             File zip = new File(zipPath);
             if(zip.exists()) {
                 zip.delete();
             }
             CheckedOutputStream cos = new CheckedOutputStream(Files.newOutputStream(zip.toPath()), new CRC32());
-            ZipOutputStream zos = new ZipOutputStream(cos);
+            zos = new ZipOutputStream(cos);
             for (int i = 0; i < doNotCompress.size(); i++) {
                 String check = doNotCompress.get(i);
                 check = check.replaceAll("/", Matcher.quoteReplacement(File.separator));
@@ -353,9 +370,10 @@ public class ZipUtils {
             File dir = new File(dirPath);
             compress(dir, zos, "", doNotCompress, resConflictFiles);
             zos.flush();
-            zos.close();
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            IoUtils.close(zos);
         }
     }
 
@@ -392,6 +410,11 @@ public class ZipUtils {
             fileName = resConflictFiles.get(fileName);
         }
         String dirName = dir + fileName;
+        // Keep META-INF/services for ServiceLoader (e.g. kotlinx.coroutines Main dispatcher),
+        // but exclude old signature files to avoid resign conflicts.
+        if (dirName.contains(META_INF_NAME) && isSignatureMetaInfFile(dirName)) {
+            return;
+        }
         String[] dirNameNew = dirName.split("/");
 
         StringBuilder buffer = new StringBuilder();
@@ -415,25 +438,22 @@ public class ZipUtils {
             entry.setCrc(calFileCRC32(file));
         }
         zos.putNextEntry(entry);
-        BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file));
-        int count;
-        byte[] data = new byte[1024];
-        while ((count = bis.read(data, 0, 1024)) != -1) {
-            zos.write(data, 0, count);
+        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
+            int count;
+            byte[] data = new byte[1024];
+            while ((count = bis.read(data, 0, 1024)) != -1) {
+                zos.write(data, 0, count);
+            }
         }
-        bis.close();
         zos.closeEntry();
     }
 
     private static long calFileCRC32(File file) throws IOException {
-        FileInputStream fi = new FileInputStream(file);
-        CheckedInputStream checksum = new CheckedInputStream(fi, new CRC32());
-        BufferedInputStream in = new BufferedInputStream(checksum);
-        while (in.read() != -1);
-        long temp = checksum.getChecksum().getValue();
-        fi.close();
-        in.close();
-        checksum.close();
-        return temp;
+        try (FileInputStream fi = new FileInputStream(file);
+             CheckedInputStream checksum = new CheckedInputStream(fi, new CRC32());
+             BufferedInputStream in = new BufferedInputStream(checksum)) {
+            while (in.read() != -1);
+            return checksum.getChecksum().getValue();
+        }
     }
 }

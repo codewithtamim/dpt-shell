@@ -24,9 +24,10 @@
 
 void dpt_crash();
 void detectFrida();
-void doPtrace();
-void protectChildProcess(pid_t pid);
+void detectDebugger();
+void detectRisk();
 void junkCodeDexProtect(JNIEnv *env);
 void verifyAppSignature(JNIEnv *env, jobject context, const char *expectedSha256);
+void verifyLibcTextCrc();
 
 #endif //DPT_DPT_RISK_H

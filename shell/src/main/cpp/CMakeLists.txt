@@ -81,7 +81,14 @@ endif()
 
 message("so name: ${SO_NAME}")
 
+if(NOT DEFINED DPT_BUILD_KEY OR DPT_BUILD_KEY STREQUAL "")
+    message(FATAL_ERROR "DPT_BUILD_KEY is required")
+endif()
+message("dpt build key: ${DPT_BUILD_KEY}")
+
 add_compile_definitions(JNI_BRIDGE_NAME="${JNI_BRIDGE_NAME}")
+add_compile_definitions(SO_NAME="lib${SO_NAME}.so")
+add_compile_definitions(DPT_BUILD_KEY="${DPT_BUILD_KEY}")
 
 include_directories(./ )
 include_directories(./common)

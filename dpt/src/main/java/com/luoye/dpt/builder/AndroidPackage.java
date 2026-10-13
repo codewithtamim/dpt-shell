@@ -3,6 +3,7 @@ package com.luoye.dpt.builder;
 
 import com.alibaba.fastjson2.JSON;
 import com.iyxan23.zipalignjava.ZipAlign;
+import com.luoye.dpt.Dpt;
 import com.luoye.dpt.config.Const;
 import com.luoye.dpt.config.ProtectRules;
 import com.luoye.dpt.config.ShellConfig;
@@ -41,7 +42,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.KeyStore;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -68,6 +68,7 @@ public abstract class AndroidPackage {
         public boolean smaller = false;
         public String protectConfigFile = null;
         public boolean verifySign = false;
+        public int riskCheckFlags = 0;
 
         public Builder filePath(String path) {
             this.filePath = path;
@@ -101,6 +102,11 @@ public abstract class AndroidPackage {
 
         public Builder verifySign(boolean verifySign) {
             this.verifySign = verifySign;
+            return this;
+        }
+
+        public Builder riskCheckFlags(int riskCheckFlags) {
+            this.riskCheckFlags = riskCheckFlags;
             return this;
         }
 
@@ -150,6 +156,7 @@ public abstract class AndroidPackage {
     private boolean keepClasses = false;
     private String protectConfigFile;
     private boolean verifySign = false;
+    private int riskCheckFlags = 0;
 
     public AndroidPackage(Builder builder) {
         setFilePath(builder.filePath);
@@ -165,6 +172,7 @@ public abstract class AndroidPackage {
         setSmaller(builder.smaller);
         setProtectConfigFile(builder.protectConfigFile);
         setVerifySign(builder.verifySign);
+        setRiskCheckFlags(builder.riskCheckFlags);
     }
 
     public void setProtectConfigFile(String protectConfigFile) {
@@ -181,6 +189,14 @@ public abstract class AndroidPackage {
 
     public boolean isVerifySign() {
         return verifySign;
+    }
+
+    public int getRiskCheckFlags() {
+        return riskCheckFlags;
+    }
+
+    public void setRiskCheckFlags(int riskCheckFlags) {
+        this.riskCheckFlags = riskCheckFlags;
     }
 
     public boolean isSmaller() {
@@ -317,10 +333,10 @@ public abstract class AndroidPackage {
             }
 
             // Output the new dex file
-            FileOutputStream localFileOutputStream = new FileOutputStream(targetDexFile);
-            localFileOutputStream.write(newDexBytes);
-            localFileOutputStream.flush();
-            localFileOutputStream.close();
+            try (FileOutputStream localFileOutputStream = new FileOutputStream(targetDexFile)) {
+                localFileOutputStream.write(newDexBytes);
+                localFileOutputStream.flush();
+            }
             LogUtils.info("New Dex file generated: " + targetDexFile);
             // Delete the dex zip package
             FileUtils.deleteRecurse(originalDexZipFile);
@@ -343,13 +359,33 @@ public abstract class AndroidPackage {
         return FileUtils.getNewFileName(packageFileName,"signed");
     }
 
+    /**
+     * Same HMAC-SHA256 key as native read_shell_config aes_key.
+     */
+    private byte[] deriveConfigAesKey(byte[] randomKey) {
+        String packageName = getPackageName();
+        if (packageName == null || packageName.isEmpty()) {
+            throw new IllegalStateException("package name is empty, cannot derive config aes key");
+        }
+        String buildKey = Dpt.getBuildKey();
+        if (buildKey == null || buildKey.isEmpty()) {
+            throw new IllegalStateException("dpt build key is missing, cannot derive config aes key");
+        }
+        String keyMaterial = packageName + "_" + buildKey;
+        return CryptoUtils.hmacSha256(randomKey, keyMaterial);
+    }
+
     public void writeConfig(String packageDir, byte[] key) {
         File configFile = new File(getOutAssetsDir(packageDir).getAbsolutePath() + File.separator + Const.KEY_SHELL_CONFIG_STORE_NAME);
         ShellConfig shellConfig = ShellConfig.getInstance();
         String json = shellConfig.toJson();
         LogUtils.info("Write config: " + json);
+        byte[] aesKey = deriveConfigAesKey(key);
         byte[] iv = KeyUtils.generateIV(key);
-        byte[] secData = CryptoUtils.aesEncrypt(key, iv, json.getBytes(StandardCharsets.UTF_8));
+        byte[] secData = CryptoUtils.aesEncrypt(aesKey, iv, json.getBytes(StandardCharsets.UTF_8));
+        if (secData == null) {
+            throw new IllegalStateException("encrypt shell config failed");
+        }
         IoUtils.writeFile(configFile.getAbsolutePath(), secData);
     }
 
@@ -410,7 +446,15 @@ public abstract class AndroidPackage {
     }
 
     protected void addJunkCodeDex(String packageDir) {
-        addDex(getJunkCodeDexPath(), getDexDir(packageDir));
+        String dexDir = getDexDir(packageDir);
+        File mainDex = new File(dexDir, "classes.dex");
+        File junkCodeDex = new File(getJunkCodeDexPath());
+        if(mainDex.exists() && DexUtils.mergeDex(mainDex, junkCodeDex)) {
+            LogUtils.info("Merge junk code into classes.dex");
+        }
+        else {
+            addDex(getJunkCodeDexPath(), dexDir);
+        }
     }
 
     protected void addKeepDexes(String packageDir) {
@@ -540,10 +584,8 @@ public abstract class AndroidPackage {
     }
 
     private void encryptSoFile(File soFile, byte[] rc4Key) {
-        try {
-            ReadElf readElf = new ReadElf(soFile);
+        try (ReadElf readElf = new ReadElf(soFile)) {
             List<ReadElf.SectionHeader> sectionHeaders = readElf.getSectionHeaders();
-            readElf.close();
             for (ReadElf.SectionHeader sectionHeader : sectionHeaders) {
                 if(".bitcode".equals(sectionHeader.getName())) {
                     LogUtils.info("start encrypt %s section: %s, offset: %s, size: %s",
@@ -569,8 +611,7 @@ public abstract class AndroidPackage {
     }
 
     private void writeSoFileCryptKey(File soFile, byte[] rc4key) {
-        try {
-            ReadElf readElf = new ReadElf(soFile);
+        try (ReadElf readElf = new ReadElf(soFile)) {
             ReadElf.Symbol symbol = readElf.getDynamicSymbol(Const.RC4_KEY_SYMBOL);
             if(symbol == null) {
                 LogUtils.warn("cannot find symbol in %s, no need write key", soFile.getName());
@@ -586,7 +627,6 @@ public abstract class AndroidPackage {
             long symbolDataOffset = sectionHeader.getOffset() + value - sectionHeader.getAddr();
             LogUtils.info("write symbol data to %s(%s)", soFile.getName(), HexUtils.toHexString(symbolDataOffset));
 
-            readElf.close();
             IoUtils.writeFile(soFile.getAbsolutePath(),rc4key,symbolDataOffset);
         }
         catch (Exception e) {
@@ -631,7 +671,7 @@ public abstract class AndroidPackage {
                 || f.getAbsolutePath().endsWith(".aab");
     }
 
-    public void extractDexCode(String packageDir, String dexCodeSavePath) {
+    public void extractDexCode(String packageDir, String dexCodeSavePath, byte[] soKey) {
         List<File> dexFiles = getDexFiles(getDexDir(packageDir));
         Map<Integer,List<Instruction>> instructionMap = new HashMap<>();
         String appNameNew = Const.KEY_CODE_ITEM_STORE_NAME;
@@ -642,13 +682,7 @@ public abstract class AndroidPackage {
         AtomicInteger keepClassesCount = new AtomicInteger(0);
 
         ShellConfig shellConfig = ShellConfig.getInstance();
-        if (shellConfig.getInsnsXorKey() == 0) {
-            int key = new SecureRandom().nextInt();
-            if (key == 0) {
-                key = 0x6f3a2c1d;
-            }
-            shellConfig.setInsnsXorKey(key);
-        }
+        shellConfig.setInsnsCryptKey(deriveConfigAesKey(soKey));
         for(File dexFile : dexFiles) {
             ThreadPool.getInstance().execute(() -> {
                 final int dexNo = DexUtils.getDexNumber(dexFile.getName());
@@ -707,11 +741,19 @@ public abstract class AndroidPackage {
                 instructionMap.put(dexNo, ret);
 
                 File dexFileRightHashes = new File(dexFile.getParent(), FileUtils.getNewFileSuffix(dexFile.getName(),"dat"));
-                DexUtils.writeHashes(extractedDexFile,dexFileRightHashes);
-                dexFile.delete();
 
-                extractedDexFile.delete();
-                dexFileRightHashes.renameTo(dexFile);
+                try {
+                    DexUtils.writeHashes(extractedDexFile, dexFileRightHashes);
+                    dexFile.delete();
+                    dexFileRightHashes.renameTo(dexFile);
+                }
+                catch (Exception e) {
+                }
+                finally {
+                    if(extractedDexFile.exists()) {
+                        extractedDexFile.delete();
+                    }
+                }
 
                 if("classes.dex".equals(dexFile.getName())) {
                     String dexSignature = DexUtils.getDexSignature(dexFile);
@@ -854,7 +896,7 @@ public abstract class AndroidPackage {
 
         String resultPath = signedPackageFile.exists() ? signedPackageFile.getAbsolutePath() : willSignPackageFile.getAbsolutePath();
 
-        if (signedPackageFile.exists() && willSignPackageFile.exists()) {
+        if (signResult && willSignPackageFile.exists()) {
             willSignPackageFile.delete();
         }
 
@@ -893,11 +935,10 @@ public abstract class AndroidPackage {
                                 String KeyPassword);
 
     private static void zipalign(String inputPackagePath, String outputPackagePath) throws Exception{
-        RandomAccessFile in = new RandomAccessFile(inputPackagePath, "r");
-        FileOutputStream out = new FileOutputStream(outputPackagePath);
-        ZipAlign.alignZip(in, out);
-        IoUtils.close(in);
-        IoUtils.close(out);
+        try (RandomAccessFile in = new RandomAccessFile(inputPackagePath, "r");
+             FileOutputStream out = new FileOutputStream(outputPackagePath)) {
+            ZipAlign.alignZip(in, out);
+        }
     }
 
     private void processRuleFile() {
@@ -921,10 +962,10 @@ public abstract class AndroidPackage {
     }
 
     private void processProtectConfigFile() {
-        // init config
-        String randomPackageName = StringUtils.generateIdentifier(10);
+        // Default shell package uses placeholder "<random>", resolved later to "{appPackage}.shell"
+        String autoShellPackageName = Const.SHELL_PACKAGE_NAME_AUTO;
         if(org.apache.commons.lang3.StringUtils.isBlank(getProtectConfigFile())) {
-            ShellConfig.getInstance().init(randomPackageName);
+            ShellConfig.getInstance().init(autoShellPackageName);
             return;
         }
 
@@ -936,8 +977,8 @@ public abstract class AndroidPackage {
 
             if(shellConfigFromFile != null) {
                 ShellConfig shellConfig = ShellConfig.getInstance();
-                if("<random>".equals(shellConfigFromFile.getShellPackageName())) {
-                    shellConfigFromFile.setShellPackageName(randomPackageName);
+                if(Const.SHELL_PACKAGE_NAME_AUTO.equals(shellConfigFromFile.getShellPackageName())) {
+                    shellConfigFromFile.setShellPackageName(autoShellPackageName);
                 }
 
                 LogUtils.info("Use config: %s", shellConfigFromFile);
@@ -945,13 +986,35 @@ public abstract class AndroidPackage {
 
             }
             else {
-                ShellConfig.getInstance().init(randomPackageName);
+                ShellConfig.getInstance().init(autoShellPackageName);
             }
 
         } catch (Exception e) {
             LogUtils.error("Read config file error");
-            ShellConfig.getInstance().init(randomPackageName);
+            ShellConfig.getInstance().init(autoShellPackageName);
         }
+    }
+
+    /**
+     * Resolve auto shell package name to "{applicationPackage}.shell" after package name is known.
+     */
+    public void resolveDefaultShellPackageName() {
+        ShellConfig shellConfig = ShellConfig.getInstance();
+        if (!Const.SHELL_PACKAGE_NAME_AUTO.equals(shellConfig.getShellPackageName())) {
+            return;
+        }
+
+        String packageName = getPackageName();
+        if (org.apache.commons.lang3.StringUtils.isBlank(packageName)) {
+            String fallback = StringUtils.generateIdentifier(10);
+            shellConfig.setShellPackageName(fallback);
+            LogUtils.warn("Package name is empty, fallback to random shell package name: %s", fallback);
+            return;
+        }
+
+        String shellPackageName = packageName + ".shell";
+        shellConfig.setShellPackageName(shellPackageName);
+        LogUtils.info("Shell package name: %s", shellPackageName);
     }
 
     private KeyStore loadKeyStore(InputStream inputStream, char[] password) {
@@ -1056,10 +1119,14 @@ public abstract class AndroidPackage {
         processRuleFile();
         processProtectConfigFile();
 
+        ShellConfig shellConfig = ShellConfig.getInstance();
+        // Merge CLI flags into config-file flags (each bit = one switch)
+        shellConfig.setRiskCheckFlags(shellConfig.getRiskCheckFlags() | getRiskCheckFlags());
+
         if (isVerifySign()) {
             String sha256 = computeSignatureSha256();
             if (sha256 != null) {
-                ShellConfig.getInstance().setAppSignSha256(sha256);
+                shellConfig.setAppSignSha256(sha256);
                 LogUtils.info("Signature verification enabled, SHA-256: " + sha256);
             } else {
                 LogUtils.error("Failed to compute certificate SHA-256, signature verification disabled.");

@@ -9,6 +9,7 @@ import com.luoye.dpt.util.ZipUtils;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -152,7 +153,12 @@ public class Aab extends AndroidPackage {
 
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(command);
+            processBuilder.redirectErrorStream(true);
             Process process = processBuilder.start();
+            try (InputStream inputStream = process.getInputStream()) {
+                // Drain stdout/stderr to avoid pipe buffer deadlock
+                inputStream.readAllBytes();
+            }
             int exitCode = process.waitFor();
             return exitCode == 0;
         }
@@ -169,7 +175,7 @@ public class Aab extends AndroidPackage {
         //aab extract path
         String aabMainProcessPath = aab.getWorkspaceDir().getAbsolutePath();
 
-        LogUtils.info("Aab path: " + aabMainProcessPath);
+        LogUtils.info("Workspace path: " + aabMainProcessPath);
 
         ZipUtils.unZip(aab.getFilePath(), aabMainProcessPath);
         String manifestFilePath = aab.getManifestFilePath(aabMainProcessPath);
@@ -178,6 +184,7 @@ public class Aab extends AndroidPackage {
 
         String packageName = AabManifestEditor.getPackageName(manifestFilePath);
         aab.setPackageName(packageName);
+        aab.resolveDefaultShellPackageName();
 
         /*======================================*
          * Process AndroidManifest.xml
@@ -204,8 +211,8 @@ public class Aab extends AndroidPackage {
          *======================================*/
         // Extract dex code
         String assetsPath = aab.getOutAssetsDir(aabMainProcessPath).getAbsolutePath();
-        aab.extractDexCode(aabMainProcessPath, assetsPath);
         aab.addJunkCodeDex(aabMainProcessPath);
+        aab.extractDexCode(aabMainProcessPath, assetsPath, encKey);
         aab.compressDexFiles(aabMainProcessPath);
         aab.deleteAllDexFiles(aabMainProcessPath);
         aab.combineDexZipWithShellDex(aabMainProcessPath);

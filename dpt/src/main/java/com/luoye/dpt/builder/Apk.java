@@ -175,12 +175,13 @@ public class Apk extends AndroidPackage {
         //apk extract path
         String apkMainProcessPath = apk.getWorkspaceDir().getAbsolutePath();
 
-        LogUtils.info("Apk path: " + apkMainProcessPath);
+        LogUtils.info("Workspace path: " + apkMainProcessPath);
 
         ZipUtils.unZip(apk.getFilePath(),apkMainProcessPath);
 
         String packageName = ApkManifestEditor.getPackageName(apkMainProcessPath + File.separator + "AndroidManifest.xml");
         apk.setPackageName(packageName);
+        apk.resolveDefaultShellPackageName();
 
         /*======================================*
          * Process AndroidManifest.xml
@@ -202,8 +203,8 @@ public class Apk extends AndroidPackage {
          *======================================*/
         String assetsPath = apk.getOutAssetsDir(apkMainProcessPath).getAbsolutePath();
 
-        apk.extractDexCode(apkMainProcessPath, assetsPath);
         apk.addJunkCodeDex(apkMainProcessPath);
+        apk.extractDexCode(apkMainProcessPath, assetsPath, encKey);
         apk.compressDexFiles(apkMainProcessPath);
         apk.deleteAllDexFiles(apkMainProcessPath);
         apk.combineDexZipWithShellDex(apkMainProcessPath);

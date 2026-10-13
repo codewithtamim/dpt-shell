@@ -15,10 +15,20 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.jar.Manifest;
 
 public class Dpt {
+
+    private static final String MANIFEST_BUILD_KEY_ATTR = "Dpt-Build-Key";
 
     public static void main(String[] args) {
         try {
@@ -39,12 +49,55 @@ public class Dpt {
     }
 
     private static void printVersion() {
+        System.out.println(getVersion());
+    }
+
+    public static String getVersion() {
         Package pkg = Dpt.class.getPackage();
         String version = (pkg != null) ? pkg.getImplementationVersion() : null;
         if (version == null) {
             version = "unknown";
         }
-        System.out.println(version);
+        return version;
+    }
+
+    public static String getBuildKey() {
+        // Prefer the key written next to shell SO artifacts so encrypt side
+        // always matches the native binary being packaged.
+        String executablePath = FileUtils.getExecutablePath();
+        if (executablePath != null && !executablePath.isEmpty()) {
+            File keyFile = new File(executablePath,
+                    "shell-files" + File.separator + Const.KEY_BUILD_KEY_FILE_NAME);
+            if (keyFile.isFile()) {
+                try {
+                    String value = Files.readString(keyFile.toPath(), StandardCharsets.UTF_8).trim();
+                    if (!value.isEmpty()) {
+                        return value;
+                    }
+                } catch (IOException ignored) {
+                    // fall through to jar manifest
+                }
+            }
+        }
+
+        try {
+            ClassLoader classLoader = Dpt.class.getClassLoader();
+            if (classLoader == null) {
+                return null;
+            }
+            Enumeration<URL> resources = classLoader.getResources("META-INF/MANIFEST.MF");
+            while (resources.hasMoreElements()) {
+                try (InputStream is = resources.nextElement().openStream()) {
+                    String value = new Manifest(is).getMainAttributes().getValue(MANIFEST_BUILD_KEY_ATTR);
+                    if (value != null && !value.isEmpty()) {
+                        return value;
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // fall through
+        }
+        return null;
     }
 
     private static AndroidPackage parseOptions(String[] args) {
@@ -68,6 +121,9 @@ public class Dpt {
                 + "- x86\n"
                 + "- x86_64"));
         options.addOption(new Option(Const.OPTION_VERIFY_SIGN, Const.OPTION_VERIFY_SIGN_LONG, false, "Enable runtime app signature verification. The certificate SHA-256 is computed automatically from the signing keystore.\n"));
+        options.addOption(new Option(null, Const.OPTION_DISABLE_FRIDA_DETECT_LONG, false, "Disable runtime Frida detection.\n"));
+        options.addOption(new Option(null, Const.OPTION_DISABLE_CRC_DETECT_LONG, false, "Disable runtime libc .text CRC detection.\n"));
+        options.addOption(new Option(null, Const.OPTION_DISABLE_ANTI_DEBUG_LONG, false, "Disable runtime anti-debug.\n"));
 
         CommandLineParser commandLineParser = new DefaultParser();
         try {
@@ -99,6 +155,17 @@ public class Dpt {
 
             String filePath = commandLine.getOptionValue(Const.OPTION_INPUT_FILE);
 
+            int riskCheckFlags = 0;
+            if (commandLine.hasOption(Const.OPTION_DISABLE_FRIDA_DETECT_LONG)) {
+                riskCheckFlags |= Const.FLAG_DISABLE_FRIDA_DETECT;
+            }
+            if (commandLine.hasOption(Const.OPTION_DISABLE_CRC_DETECT_LONG)) {
+                riskCheckFlags |= Const.FLAG_DISABLE_CRC_DETECT;
+            }
+            if (commandLine.hasOption(Const.OPTION_DISABLE_ANTI_DEBUG_LONG)) {
+                riskCheckFlags |= Const.FLAG_DISABLE_ANTI_DEBUG;
+            }
+
             if(filePath.endsWith(".apk")) {
                 return new Apk.Builder()
                         .filePath(filePath)
@@ -113,6 +180,7 @@ public class Dpt {
                         .smaller(commandLine.hasOption(Const.OPTION_SMALLER))
                         .protectConfigFile(commandLine.getOptionValue(Const.OPTION_PROTECT_CONFIG))
                         .verifySign(commandLine.hasOption(Const.OPTION_VERIFY_SIGN))
+                        .riskCheckFlags(riskCheckFlags)
                         .build();
             }
             else if(filePath.endsWith(".aab")) {
@@ -129,6 +197,7 @@ public class Dpt {
                         .smaller(commandLine.hasOption(Const.OPTION_SMALLER))
                         .protectConfigFile(commandLine.getOptionValue(Const.OPTION_PROTECT_CONFIG))
                         .verifySign(commandLine.hasOption(Const.OPTION_VERIFY_SIGN))
+                        .riskCheckFlags(riskCheckFlags)
                         .build();
             }
             else {

@@ -45,6 +45,15 @@ public class Const {
     public static final String OPTION_VERIFY_SIGN = "vs";
     public static final String OPTION_VERIFY_SIGN_LONG = "verify-sign";
 
+    public static final String OPTION_DISABLE_FRIDA_DETECT_LONG = "disable-frida-detect";
+    public static final String OPTION_DISABLE_CRC_DETECT_LONG = "disable-crc-detect";
+    public static final String OPTION_DISABLE_ANTI_DEBUG_LONG = "disable-anti-debug";
+
+    // Risk check flags: one int, each bit is a switch (1 = disable)
+    public static final int FLAG_DISABLE_FRIDA_DETECT = 1;
+    public static final int FLAG_DISABLE_CRC_DETECT = 1 << 1;
+    public static final int FLAG_DISABLE_ANTI_DEBUG = 1 << 2;
+
     public static final String KEY_STORE_ASSET_NAME = "dpt.jks";
     public static final String KEY_STORE_ASSET_PATH = "assets/" + KEY_STORE_ASSET_NAME;
     public static final String STORE_PASSWORD = "android";
@@ -59,12 +68,15 @@ public class Const {
     public static final String RC4_KEY_SYMBOL = "DPT_UNKNOWN_DATA";
 
     public static final String KEY_SHELL_CONFIG_STORE_NAME = "d_shell_data_001";
+    public static final String KEY_BUILD_KEY_FILE_NAME = "build-key";
     public static final String KEY_DEXES_STORE_NAME = "i11111i111.zip";
     public static final String KEY_DEXES_STORE_UNALIGNED_NAME = "i11111i111_unaligned.zip";
     public static final String KEY_CODE_ITEM_STORE_NAME = "OoooooOooo";
     public static final String KEY_LIBS_DIR_NAME = "vwwwwwvwww";
     public static final String KEY_JNI_BASE_CLASS_NAME = "JniBridge";
     public static final String DEFAULT_SHELL_PACKAGE_NAME = "com/luoyesiqiu/shell";
+    /** Auto shell package placeholder; resolved to "{appPackage}.shell" after package name is known. */
+    public static final String SHELL_PACKAGE_NAME_AUTO = "<random>";
     public static final String RANDOM_DIR_NAME = StringUtils.generateIdentifier(16);
 
 }

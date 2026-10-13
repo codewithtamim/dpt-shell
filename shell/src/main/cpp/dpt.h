@@ -40,13 +40,20 @@
 using namespace dpt;
 
 
+// Risk check flags: one int, each bit is a switch (1 = disable)
+#define FLAG_DISABLE_FRIDA_DETECT (1u << 0)
+#define FLAG_DISABLE_CRC_DETECT   (1u << 1)
+#define FLAG_DISABLE_ANTI_DEBUG   (1u << 2)
+
 struct ShellConfig {
     std::string application_name;
     std::string application_component_factory;
     std::string jni_class_name;
     std::string app_sign_sha256;
     std::string dex_sign;
-    uint32_t insns_xor_key = 0;
+    std::string junk_class_name;
+    uint8_t aes_key[32] = {};
+    uint32_t risk_check_flags = 0;
 };
 
 void callRealApplicationOnCreate(JNIEnv *env, jclass, jstring realApplicationClassName);

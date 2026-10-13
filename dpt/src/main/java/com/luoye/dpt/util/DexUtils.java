@@ -4,6 +4,10 @@ import com.android.dex.ClassData;
 import com.android.dex.ClassDef;
 import com.android.dex.Code;
 import com.android.dex.Dex;
+import com.android.dex.DexException;
+import com.android.dx.command.dexer.DxContext;
+import com.android.dx.merge.CollisionPolicy;
+import com.android.dx.merge.DexMerger;
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
@@ -27,6 +31,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
@@ -41,6 +46,16 @@ import java.util.regex.Pattern;
  */
 public class DexUtils {
     private final static Map<String,Integer> codeOffAppearMap = new ConcurrentHashMap<>();
+
+    private static final OutputStream NOOP_OUTPUT_STREAM = new OutputStream() {
+        @Override
+        public void write(int b) {
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) {
+        }
+    };
 
     /**
      * Classes with these prefixes must be kept in place: with -K(keep-classes) they are
@@ -254,9 +269,17 @@ public class DexUtils {
 
             saveCodeOffAppear(dex, dexNumber);
 
+            String junkClassName = ShellConfig.getInstance().getJunkClassName();
+
             for (ClassDef classDef : classDefs) {
                 // Skip exclude classes name
                 if(ProtectRules.getInstance().matchRules(classDef.toString())) {
+                    continue;
+                }
+
+                // Skip junk code classes so their method bodies stay intact.
+                if(junkClassName != null && !junkClassName.isEmpty()
+                        && classDef.toString().contains(junkClassName)) {
                     continue;
                 }
 
@@ -391,14 +414,13 @@ public class DexUtils {
             }
         }
 
-        int xorKey = ShellConfig.getInstance().getInsnsXorKey();
-        if (xorKey != 0) {
-            for (int i = 0; i < byteCode.length; i++) {
-                int shift = (i & 3) << 3;
-                byteCode[i] = (byte) (byteCode[i] ^ ((xorKey >> shift) & 0xff));
-            }
+        byte[] aesKey = ShellConfig.getInstance().getInsnsCryptKey();
+        byte[] rc4Key = CryptoUtils.buildInsnsRc4Key(aesKey, method.getMethodIndex());
+        byte[] encrypted = CryptoUtils.rc4Crypt(rc4Key, byteCode);
+        if (encrypted == null || encrypted.length != byteCode.length) {
+            throw new IllegalStateException("rc4 encrypt insns failed");
         }
-        instruction.setInstructionsData(byteCode);
+        instruction.setInstructionsData(encrypted);
         outRandomAccessFile.seek(insnsOffset);
 
         return instruction;
@@ -444,15 +466,40 @@ public class DexUtils {
             dex.writeTo(newDexFile);
         }
         catch (Exception e){
-            e.printStackTrace();
+            throw new DexException("Cannot write dex hashes");
         }
     }
 
     public static String getDexSignature(File dexFile) {
         byte[] dexData = IoUtils.readFile(dexFile.getAbsolutePath());
+        if(dexData.length <= 29) {
+            return null;
+        }
         byte[] signature = new byte[20];
         ByteBuffer.wrap(dexData).position(9).get(signature);
         return HexUtils.toHexString(signature);
+    }
+
+    /**
+     * Merge {@code srcDexFile} into {@code dstDexFile} in place. Returns false if the
+     * merge overflows the dex index limits (or fails for any other reason), so callers
+     * can fall back to keeping the dexes separate.
+     */
+    public static boolean mergeDex(File dstDexFile, File srcDexFile) {
+        try {
+            Dex dstDex = new Dex(dstDexFile);
+            Dex srcDex = new Dex(srcDexFile);
+            DexMerger dexMerger = new DexMerger(
+                    new Dex[]{dstDex, srcDex},
+                    CollisionPolicy.KEEP_FIRST,
+                    new DxContext(NOOP_OUTPUT_STREAM, NOOP_OUTPUT_STREAM));
+            Dex mergedDex = dexMerger.merge();
+            mergedDex.writeTo(dstDexFile);
+            return true;
+        }
+        catch (Exception ignored) {
+        }
+        return false;
     }
 
     /**
@@ -460,25 +507,24 @@ public class DexUtils {
      */
     public static void restoreInstructions(File dexFile,List<Instruction> instructions) throws IOException {
         Dex dex = new Dex(dexFile);
-        RandomAccessFile randomAccessFile = new RandomAccessFile(dexFile,"rw");
-        Iterable<ClassDef> classDefs = dex.classDefs();
-        int listIndex = 0;
-        for (ClassDef classDef : classDefs) {
-            ClassData.Method[] methods = dex.readClassData(classDef).allMethods();
-            for(int i = 0; i < methods.length ;i++){
-                ClassData.Method method = methods[i];
-                int offsetInstructions = method.getCodeOffset() + 16;
-                Instruction instruction = instructions.get(listIndex ++ );
-                if(instruction.getMethodIndex() == method.getMethodIndex()) {
-                    byte[] byteCode = Base64.getDecoder().decode(instruction.getInstructionsData());
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(dexFile,"rw")) {
+            Iterable<ClassDef> classDefs = dex.classDefs();
+            int listIndex = 0;
+            for (ClassDef classDef : classDefs) {
+                ClassData.Method[] methods = dex.readClassData(classDef).allMethods();
+                for(int i = 0; i < methods.length ;i++){
+                    ClassData.Method method = methods[i];
+                    int offsetInstructions = method.getCodeOffset() + 16;
+                    Instruction instruction = instructions.get(listIndex ++ );
+                    if(instruction.getMethodIndex() == method.getMethodIndex()) {
+                        byte[] byteCode = Base64.getDecoder().decode(instruction.getInstructionsData());
 
-                    randomAccessFile.seek(offsetInstructions);
-                    randomAccessFile.write(byteCode,0,byteCode.length);
+                        randomAccessFile.seek(offsetInstructions);
+                        randomAccessFile.write(byteCode,0,byteCode.length);
+                    }
                 }
             }
         }
-
-        randomAccessFile.close();
     }
 
 }

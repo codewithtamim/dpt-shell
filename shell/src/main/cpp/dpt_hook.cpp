@@ -5,7 +5,10 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include <string>
+#include <cstring>
 #include <sys/system_properties.h>
+#include <unistd.h>
 #include "dex/CodeItem.h"
 #include "common/dpt_string.h"
 #include "dpt_hook.h"
@@ -20,9 +23,14 @@ std::map<int,uint8_t *> dexMemMap;
 int g_sdkLevel = 0;
 extern ShellConfig g_shell_config;
 
+const char *GetArtLibPath();
+const char *GetClassLinkerDefineClassLibPath();
+
 void dpt_hook() {
     bytehook_init(BYTEHOOK_MODE_AUTOMATIC,false);
     g_sdkLevel = android_get_device_api_level();
+    DLOGI("sdkLevel=%d, artPath=%s", g_sdkLevel, GetArtLibPath());
+
     hook_execve();
     hook_mmap();
     hook_write();
@@ -32,24 +40,68 @@ void dpt_hook() {
     }
 }
 
-const char *GetArtLibPath() {
-    if(g_sdkLevel < 29)
-        return  "/system/" LIB_DIR "/libart.so" ;
-    else if(g_sdkLevel == 29) {
-        return "/apex/com.android.runtime/" LIB_DIR "/libart.so";
+// Resolve the actually-loaded SO path. maps is preferred so Dobby's
+// strstr(module.path, image_name) hits the same ELF we parse, not another
+// same-named file that merely exists on disk (e.g. art vs art.compatible).
+static const char *resolveLibPathCached(const char *so_name,
+                                        const char *const *candidates,
+                                        size_t candidate_count,
+                                        std::string &cached,
+                                        bool &resolved) {
+    if (resolved) {
+        return cached.c_str();
     }
-    else {
-        return "/apex/com.android.art/" LIB_DIR "/libart.so";
+
+    std::string from_maps = find_so_path(so_name);
+    if (!from_maps.empty()) {
+        cached = std::move(from_maps);
+        resolved = true;
+        DLOGI("resolve %s from maps: %s", so_name, cached.c_str());
+        return cached.c_str();
     }
+
+    for (size_t i = 0; i < candidate_count; i++) {
+        const char *candidate = candidates[i];
+        if (candidate == nullptr) {
+            continue;
+        }
+        if (access(candidate, R_OK) == 0) {
+            cached.assign(candidate);
+            resolved = true;
+            DLOGI("resolve %s: %s", so_name, cached.c_str());
+            return cached.c_str();
+        }
+    }
+
+    if (candidate_count > 0 && candidates[0] != nullptr) {
+        cached.assign(candidates[0]);
+    } else if (so_name != nullptr) {
+        cached.assign(so_name);
+    } else {
+        cached.clear();
+    }
+    resolved = true;
+    DLOGW("resolve %s fallback: %s", so_name, cached.c_str());
+    return cached.c_str();
 }
 
-const char *GetArtBaseLibPath() {
-    if(g_sdkLevel == 29) {
-        return "/apex/com.android.runtime/" LIB_DIR "/libartbase.so";
+const char *GetArtLibPath() {
+    // HyperOS/MIUI may ship libart under com.android.art.compatible.
+    // Prefer the in-process mapping; cache after first resolve.
+    static std::string art_path;
+    static bool art_resolved = false;
+    if (art_resolved) {
+        return art_path.c_str();
     }
-    else {
-        return "/apex/com.android.art/" LIB_DIR "/libartbase.so";
-    }
+
+    const char *candidates[] = {
+            "/apex/com.android.art.compatible/" LIB_DIR "/libart.so",
+            "/apex/com.android.art/" LIB_DIR "/libart.so",
+            "/apex/com.android.runtime/" LIB_DIR "/libart.so",
+            "/system/" LIB_DIR "/libart.so",
+    };
+    return resolveLibPathCached("libart.so", candidates, ARRAY_LENGTH(candidates),
+                                art_path, art_resolved);
 }
 
 const char *GetClassLinkerDefineClassLibPath(){
@@ -110,20 +162,17 @@ void patchMethod(uint8_t *begin,
                  realInsnsPtr,
                  (unsigned int)(realInsnsPtr - begin));
 
-            uint32_t xorKey = g_shell_config.insns_xor_key;
-            if (xorKey == 0) {
-                memcpy(realInsnsPtr, codeItem->getInsns(), codeItem->getInsnsSize());
-            } else {
-                thread_local std::vector<uint8_t> tmp;
-                uint32_t sz = codeItem->getInsnsSize();
-                tmp.resize(sz);
-                const uint8_t* enc = codeItem->getInsns();
-                for (uint32_t i = 0; i < sz; i++) {
-                    uint32_t shift = (i & 3u) << 3u;
-                    tmp[i] = (uint8_t)(enc[i] ^ ((xorKey >> shift) & 0xffu));
-                }
-                memcpy(realInsnsPtr, tmp.data(), sz);
-            }
+            const uint8_t *enc = codeItem->getInsns();
+            uint32_t sz = codeItem->getInsnsSize();
+
+            uint8_t rc4_key[sizeof(g_shell_config.aes_key) + sizeof(uint32_t)];
+            memcpy(rc4_key, g_shell_config.aes_key, sizeof(g_shell_config.aes_key));
+            uint32_t methodIndex = codeItem->getMethodIdx();
+            memcpy(rc4_key + sizeof(g_shell_config.aes_key), &methodIndex, sizeof(methodIndex));
+
+            struct rc4_state state;
+            rc4_init(&state, rc4_key, static_cast<int>(sizeof(rc4_key)));
+            rc4_crypt(&state, enc, realInsnsPtr, static_cast<int>(sz));
         }
         else{
             NLOG("cannot find  methodId: %d in codeitem map, dex index: %d(%s)", methodIdx, dexIndex, location);
@@ -134,11 +183,57 @@ void patchMethod(uint8_t *begin,
     }
 }
 
-DPT_ENCRYPT void patchClass(__unused const char* descriptor,
+// Resolve the class descriptor string from a DexFile + ClassDef, since
+// ClassLinker::LoadClass does not pass the descriptor as a parameter.
+static const char* getClassDescriptor(const void* dex_file, const void* dex_class_def) {
+    if(dex_file == nullptr || dex_class_def == nullptr) {
+        return nullptr;
+    }
+
+    const uint8_t *begin = nullptr;
+    const dex::TypeId *type_ids = nullptr;
+    const dex::StringId *string_ids = nullptr;
+
+    if(g_sdkLevel >= 35) {
+        auto *dexFileV35 = (V35::DexFile *) dex_file;
+        begin = dexFileV35->begin_;
+        type_ids = dexFileV35->type_ids_;
+        string_ids = dexFileV35->string_ids_;
+    }
+    else if(g_sdkLevel >= __ANDROID_API_P__) {
+        auto *dexFileV28 = (V28::DexFile *) dex_file;
+        begin = dexFileV28->begin_;
+        type_ids = dexFileV28->type_ids_;
+        string_ids = dexFileV28->string_ids_;
+    }
+    else {
+        auto *dexFileV21 = (V21::DexFile *) dex_file;
+        begin = dexFileV21->begin_;
+        type_ids = dexFileV21->type_ids_;
+        string_ids = dexFileV21->string_ids_;
+    }
+
+    if(begin == nullptr || type_ids == nullptr || string_ids == nullptr) {
+        return nullptr;
+    }
+
+    auto *class_def = (dex::ClassDef *) dex_class_def;
+    uint32_t descriptor_idx = type_ids[class_def->class_idx_].descriptor_idx_;
+    const uint8_t *str_data = begin + string_ids[descriptor_idx].string_data_off_;
+
+    // string_data_item is prefixed with a uleb128 utf16 length; skip it.
+    uint64_t utf16_length = 0;
+    str_data += DexFileUtils::readUleb128(str_data, &utf16_length);
+    return (const char *) str_data;
+}
+
+DPT_ENCRYPT void patchClass(const char* descriptor,
                  const void* dex_file,
                  const void* dex_class_def) {
 
-    const char *junkClassName = AY_OBFUSCATE(JUNK_CLASS_FULL_NAME);
+    const char *junkClassName = g_shell_config.junk_class_name.empty()
+            ? AY_OBFUSCATE(JUNK_CLASS_FULL_NAME)
+            : g_shell_config.junk_class_name.c_str();
     if(descriptor != nullptr && UNLIKELY(dpt_strstr(descriptor, junkClassName) != nullptr)) {
         size_t descriptorLength = dpt_strlen(descriptor);
         char ch = descriptor[descriptorLength - 2];
@@ -238,7 +333,11 @@ DPT_ENCRYPT void LoadClassV23(void* thiz,
                                const void* dex_class_def,
                                const char* klass) {
     if(LIKELY(g_originLoadClassV23 != nullptr)) {
-        patchClass(nullptr,dex_file,dex_class_def);
+
+        const char *descriptor = getClassDescriptor(dex_file, dex_class_def);
+
+        DLOGD("desc: %s", descriptor);
+        patchClass(descriptor, dex_file, dex_class_def);
         g_originLoadClassV23(thiz, self, dex_file, dex_class_def, klass);
     }
 }
@@ -249,15 +348,26 @@ DPT_ENCRYPT bool hook_LoadClass() {
     }
 
     void* loadClassAddress = nullptr;
+    const char *classLinkerPath = GetClassLinkerDefineClassLibPath();
 
     char sym[256] = {0};
-    find_symbol_in_elf_file(GetClassLinkerDefineClassLibPath(), sym, ARRAY_LENGTH(sym), 2, "ClassLinker", "LoadClass");
+    find_symbol_in_elf_file(classLinkerPath, sym, ARRAY_LENGTH(sym), 2, "ClassLinker", "LoadClass");
 
-    loadClassAddress = DobbySymbolResolver(GetArtLibPath(), sym);
+    if(strlen(sym) == 0) {
+        DLOGW("cannot find symbol: LoadClass");
+        return false;
+    }
+
+    DLOGI("DobbySymbolResolver(LoadClass) image=%s sym=%s", classLinkerPath, sym);
+    loadClassAddress = DobbySymbolResolver(classLinkerPath, sym);
+
+    if(loadClassAddress == nullptr) {
+        DLOGE("LoadClass address is null, sym: %s", sym);
+        return false;
+    }
 
     int hookResult = DobbyHook(loadClassAddress, (dobby_dummy_func_t) LoadClassV23, (dobby_dummy_func_t *) &g_originLoadClassV23);
-
-    DLOGD("hook result: %d", hookResult);
+    DLOGD("hook_LoadClass result: %d", hookResult);
     return hookResult == 0;
 }
 
@@ -293,15 +403,18 @@ DPT_ENCRYPT void *DefineClassV21(void* thiz,
 }
 
 DPT_ENCRYPT bool hook_DefineClass() {
+    const char *classLinkerPath = GetClassLinkerDefineClassLibPath();
+
     char sym[256] = {0};
-    find_symbol_in_elf_file(GetClassLinkerDefineClassLibPath(), sym, ARRAY_LENGTH(sym), 2, "ClassLinker", "DefineClass");
+    find_symbol_in_elf_file(classLinkerPath, sym, ARRAY_LENGTH(sym), 2, "ClassLinker", "DefineClass");
 
     if(strlen(sym) == 0) {
         DLOGW("cannot find symbol: DefineClass");
         return false;
     }
 
-    void* defineClassAddress = DobbySymbolResolver(GetClassLinkerDefineClassLibPath(), sym);
+    DLOGI("DobbySymbolResolver(DefineClass) image=%s", classLinkerPath);
+    void* defineClassAddress = DobbySymbolResolver(classLinkerPath, sym);
 
     if(defineClassAddress == nullptr) {
         DLOGE("defineClass address is null, sym: %s", sym);

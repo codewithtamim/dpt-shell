@@ -6,6 +6,8 @@
 #include "dpt_crypto.h"
 #include "external/json/json.hpp"
 
+#include <memory>
+
 using namespace dpt;
 
 static pthread_mutex_t g_write_dexes_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -186,21 +188,12 @@ DPT_ENCRYPT jstring readApplicationName(JNIEnv *env, jclass __unused) {
     return env->NewStringUTF(g_shell_config.application_name.c_str());
 }
 
-DPT_ENCRYPT void createAntiRiskProcess() {
-    pid_t child = fork();
-    if(child < 0) {
-        DLOGW("fork fail!");
-        detectFrida();
-    }
-    else if(child == 0) {
-        DLOGD("in child process");
-        detectFrida();
-        doPtrace();
-    }
-    else {
-        DLOGD("in main process, child pid: %d", child);
-        protectChildProcess(child);
-        detectFrida();
+DPT_ENCRYPT void antiRisk() {
+    bool needDetect = ((g_shell_config.risk_check_flags & FLAG_DISABLE_FRIDA_DETECT) == 0)
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_CRC_DETECT) == 0)
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_ANTI_DEBUG) == 0);
+    if (needDetect) {
+        detectRisk();
     }
 }
 
@@ -208,13 +201,21 @@ void decrypt_section(const char* section_name, int temp_prot, int target_prot) {
     Dl_info info;
     dladdr((const void *)decrypt_section,&info);
     std::string so_path = {};
-    if(strstr(info.dli_fname, "/data") != nullptr) {
-        so_path.assign(info.dli_fname);
+
+    if (info.dli_fname != nullptr) {
+        if (info.dli_fname[0] == '/') {
+            so_path.assign(info.dli_fname);
+        } else {
+            auto path = find_so_path(info.dli_fname);
+            so_path.assign(path);
+        }
     }
-    else {
-        auto path = find_so_path("libdpt.so");
+
+    if(so_path.empty()) {
+        auto path = find_so_path(SO_NAME);
         so_path.assign(path);
     }
+
     Elf_Shdr shdr = {};
 
     get_elf_section(&shdr, so_path.c_str(), section_name);
@@ -256,7 +257,6 @@ void init_dpt() {
     DLOGI("call!");
 
     dpt_hook();
-    createAntiRiskProcess();
 }
 
 jclass getRealApplicationClass(JNIEnv *env, const char *applicationClassName) {
@@ -472,7 +472,7 @@ DPT_ENCRYPT void readCodeItem(uint8_t *data,size_t data_len) {
     }
 }
 
-void read_shell_config(JNIEnv *env) {
+DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
     void *package_addr = nullptr;
     size_t package_size = 0;
     load_package(env, &package_addr, &package_size);
@@ -480,7 +480,59 @@ void read_shell_config(JNIEnv *env) {
     auto entry = read_zip_file_entry(package_addr, package_size , AY_OBFUSCATE(SHELL_CONFIG_IN_ZIP));
     if(entry.has_value()) {
         auto [entry_data, entry_size] = entry.value();
+        std::unique_ptr<uint8_t[]> entry_guard(entry_data);
         if(entry_size > 0) {
+            reflect::android_app_ActivityThread activityThread(env);
+            jobject mBoundApplicationObj = activityThread.getBoundApplication();
+            if (mBoundApplicationObj == nullptr) {
+                DLOGE("bound application is null");
+                unload_package(package_addr, package_size);
+                return;
+            }
+
+            reflect::android_app_ActivityThread::AppBindData appBindData(env, mBoundApplicationObj);
+            jobject appInfoObj = appBindData.getAppInfo();
+            if (appInfoObj == nullptr) {
+                DLOGE("app info is null");
+                unload_package(package_addr, package_size);
+                return;
+            }
+
+            reflect::android_content_pm_ApplicationInfo applicationInfo(env, appInfoObj);
+            jstring packageNameJstr = applicationInfo.getPackageName();
+            if (packageNameJstr == nullptr) {
+                DLOGE("package name is null");
+                unload_package(package_addr, package_size);
+                return;
+            }
+
+            const char *packageNameChs = env->GetStringUTFChars(packageNameJstr, nullptr);
+            if (packageNameChs == nullptr || packageNameChs[0] == '\0') {
+                DLOGE("package name is empty");
+                if (packageNameChs != nullptr) {
+                    env->ReleaseStringUTFChars(packageNameJstr, packageNameChs);
+                }
+                unload_package(package_addr, package_size);
+                return;
+            }
+
+            std::string packageName(packageNameChs);
+            env->ReleaseStringUTFChars(packageNameJstr, packageNameChs);
+            const char *buildKey = AY_OBFUSCATE(DPT_BUILD_KEY);
+            const char *keySep = AY_OBFUSCATE("_");
+            std::string key_material = packageName + keySep + buildKey;
+            DLOGD("key material for config key: %s", key_material.c_str());
+
+            auto aes_key = hmac_sha256(DPT_UNKNOWN_DATA,
+                                       16,
+                                       reinterpret_cast<const uint8_t *>(key_material.data()),
+                                       key_material.size());
+            if (aes_key.size() != 32) {
+                DLOGE("derive config aes key failed");
+                unload_package(package_addr, package_size);
+                return;
+            }
+            memcpy(g_shell_config.aes_key, aes_key.data(), sizeof(g_shell_config.aes_key));
 
             std::vector<uint8_t> indata(entry_data, entry_data + entry_size);
 
@@ -488,26 +540,43 @@ void read_shell_config(JNIEnv *env) {
             memcpy(iv, DPT_UNKNOWN_DATA, 16);
             iv[3] = 0x2f;
             iv[9] = 0x76;
-            auto decrypted_data = aes_cbc_decrypt(DPT_UNKNOWN_DATA, iv, indata.data(), entry_size);
-            std::string jsonStr = std::string(decrypted_data.begin(), decrypted_data.end());
+            auto decrypted_data = aes_cbc_decrypt(aes_key.data(), 256, iv, indata.data(), entry_size);
+            if (decrypted_data.empty()) {
+                DLOGE("decrypt shell config failed");
+                unload_package(package_addr, package_size);
+                return;
+            }
 
-            DLOGD("raw config: '%s'", jsonStr.c_str());
+            try {
+                std::string jsonStr = std::string(decrypted_data.begin(), decrypted_data.end());
+                DLOGD("raw config: '%s'", jsonStr.c_str());
 
-            nlohmann::json shell_config = nlohmann::json::parse(jsonStr);
-            g_shell_config.application_name = shell_config.value("app_name", "");
-            g_shell_config.application_component_factory = shell_config.value("acf_name", "");
-            g_shell_config.jni_class_name = shell_config.value("jni_cls_name", "");
-            g_shell_config.app_sign_sha256 = shell_config.value("app_sign_sha256", "");
-            g_shell_config.dex_sign = shell_config.value("dex_sign", "");
-            g_shell_config.insns_xor_key = shell_config.value("insns_xor_key", 0);
+                nlohmann::json shell_config = nlohmann::json::parse(jsonStr);
+                const char *keyAppName = AY_OBFUSCATE("app_name");
+                const char *keyAcfName = AY_OBFUSCATE("acf_name");
+                const char *keyJniClsName = AY_OBFUSCATE("jni_cls_name");
+                const char *keyAppSignSha256 = AY_OBFUSCATE("app_sign_sha256");
+                const char *keyDexSign = AY_OBFUSCATE("dex_sign");
+                const char *keyJunkClsName = AY_OBFUSCATE("junk_cls_name");
+                const char *keyRiskCheckFlags = AY_OBFUSCATE("risk_check_flags");
+                g_shell_config.application_name = shell_config.value(keyAppName, "");
+                g_shell_config.application_component_factory = shell_config.value(keyAcfName, "");
+                g_shell_config.jni_class_name = shell_config.value(keyJniClsName, "");
+                g_shell_config.app_sign_sha256 = shell_config.value(keyAppSignSha256, "");
+                g_shell_config.dex_sign = shell_config.value(keyDexSign, "");
+                g_shell_config.junk_class_name = shell_config.value(keyJunkClsName, "");
+                g_shell_config.risk_check_flags = shell_config.value(keyRiskCheckFlags, 0);
 
-            DLOGD("application_name = %s", g_shell_config.application_name.c_str());
-            DLOGD("application_component_factory = %s", g_shell_config.application_component_factory.c_str());
-            DLOGD("jni_class_name = %s", g_shell_config.jni_class_name.c_str());
-            DLOGD("app_sign_sha256 = %s", g_shell_config.app_sign_sha256.c_str());
-            DLOGD("dex_sign = %s", g_shell_config.dex_sign.c_str());
-            DLOGD("insns_xor_key = 0x%x", g_shell_config.insns_xor_key);
-
+                DLOGD("application_name = %s", g_shell_config.application_name.c_str());
+                DLOGD("application_component_factory = %s", g_shell_config.application_component_factory.c_str());
+                DLOGD("jni_class_name = %s", g_shell_config.jni_class_name.c_str());
+                DLOGD("app_sign_sha256 = %s", g_shell_config.app_sign_sha256.c_str());
+                DLOGD("dex_sign = %s", g_shell_config.dex_sign.c_str());
+                DLOGD("junk_class_name = %s", g_shell_config.junk_class_name.c_str());
+                DLOGD("risk_check_flags = 0x%x", g_shell_config.risk_check_flags);
+            } catch (const std::exception &e) {
+                DLOGE("parse shell config failed: %s", e.what());
+            }
         }
     }
 
@@ -532,6 +601,8 @@ DPT_ENCRYPT JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     }
 
     read_shell_config(env);
+
+    antiRisk();
 
     if (registerNativeMethods(env) == JNI_FALSE) {
         DLOGF("register native methods fail!");
