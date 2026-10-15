@@ -45,6 +45,8 @@ using namespace dpt;
 #define FLAG_DISABLE_CRC_DETECT   (1u << 1)
 #define FLAG_DISABLE_ANTI_DEBUG   (1u << 2)
 #define FLAG_DISABLE_LSPOSED_DETECT (1u << 3)
+#define FLAG_DISABLE_ZYGISK_DETECT (1u << 4)
+#define FLAG_DISABLE_MOUNT_DETECT (1u << 5)
 
 struct ShellConfig {
     std::string application_name;

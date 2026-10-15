@@ -25,6 +25,8 @@
 void dpt_crash();
 void detectFrida();
 void detectLsposed();
+void detectZygisk();
+void detectRootMounts();
 void detectDebugger();
 void detectRisk();
 void junkCodeDexProtect(JNIEnv *env);

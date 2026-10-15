@@ -22,6 +22,8 @@ final class DptCliNames {
     static final String PROTECT_CONFIG = "protect-config";
     static final String VERIFY_SIGN = "verify-sign";
     static final String DISABLE_LSPOSED_DETECT = "disable-lsposed-detect";
+    static final String DISABLE_ZYGISK_DETECT = "disable-zygisk-detect";
+    static final String DISABLE_MOUNT_DETECT = "disable-mount-detect";
 
     private DptCliNames() {}
 }

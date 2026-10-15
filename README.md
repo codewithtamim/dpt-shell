@@ -103,7 +103,12 @@ usage: java -jar dpt.jar [option] -f <package_file>
      --disable-frida-detect   Disable runtime Frida detection.
                               
      --disable-lsposed-detect Disable runtime LSPosed/Xposed detection.
-                              
+
+     --disable-zygisk-detect  Disable runtime Zygisk/Riru/Magisk mapping
+                              detection.
+
+     --disable-mount-detect   Disable runtime Magisk mount detection.
+
      --dump-code              Dump the code item of DEX and save it to
                              .json files.
  -e,--exclude-abi <arg>      Exclude specific ABIs (comma separated, e.g.

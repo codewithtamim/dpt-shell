@@ -49,12 +49,16 @@ public class Const {
     public static final String OPTION_DISABLE_CRC_DETECT_LONG = "disable-crc-detect";
     public static final String OPTION_DISABLE_ANTI_DEBUG_LONG = "disable-anti-debug";
     public static final String OPTION_DISABLE_LSPOSED_DETECT_LONG = "disable-lsposed-detect";
+    public static final String OPTION_DISABLE_ZYGISK_DETECT_LONG = "disable-zygisk-detect";
+    public static final String OPTION_DISABLE_MOUNT_DETECT_LONG = "disable-mount-detect";
 
     // Risk check flags: one int, each bit is a switch (1 = disable)
     public static final int FLAG_DISABLE_FRIDA_DETECT = 1;
     public static final int FLAG_DISABLE_CRC_DETECT = 1 << 1;
     public static final int FLAG_DISABLE_ANTI_DEBUG = 1 << 2;
     public static final int FLAG_DISABLE_LSPOSED_DETECT = 1 << 3;
+    public static final int FLAG_DISABLE_ZYGISK_DETECT = 1 << 4;
+    public static final int FLAG_DISABLE_MOUNT_DETECT = 1 << 5;
 
     public static final String KEY_STORE_ASSET_NAME = "dpt.jks";
     public static final String KEY_STORE_ASSET_PATH = "assets/" + KEY_STORE_ASSET_NAME;

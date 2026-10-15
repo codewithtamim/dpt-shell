@@ -203,6 +203,210 @@ DPT_ENCRYPT void detectLsposed() {
     fclose(fp);
 }
 
+// Forward declarations (defined below, shared by the maps/mount checks).
+static bool lineHasTokenCi(const char *line, const char *needle);
+static bool lineField(const char *line, int idx, char *out, size_t outSize);
+static bool optsHasRw(const char *opts);
+static bool isSystemTarget(const char *target);
+
+DPT_ENCRYPT void detectZygisk() {
+    // Signal list derived from Duck-Detector (Apache-2.0)
+    // feature/zygisk + feature/mount evidence: zygote-injected
+    // frameworks and root hiders leave their names in mappings.
+    const char *t_magisk = AY_OBFUSCATE("magisk");
+    const char *t_magiskhide = AY_OBFUSCATE("magiskhide");
+    const char *t_shamiko = AY_OBFUSCATE("shamiko");
+    const char *t_riru = AY_OBFUSCATE("riru");
+    const char *t_libriru = AY_OBFUSCATE("libriru");
+    const char *t_zygisk = AY_OBFUSCATE("zygisk");
+    const char *t_libzygisk = AY_OBFUSCATE("libzygisk");
+    const char *t_zygisknext = AY_OBFUSCATE("zygisknext");
+    const char *t_rezygisk = AY_OBFUSCATE("rezygisk");
+    const char *t_nezygisk = AY_OBFUSCATE("nezygisk");
+    const char *tokens[] = {
+        t_magisk, t_magiskhide, t_shamiko, t_riru, t_libriru,
+        t_zygisk, t_libzygisk, t_zygisknext, t_rezygisk, t_nezygisk
+    };
+
+    char maps_path[64] = {0};
+    snprintf(maps_path, sizeof(maps_path), AY_OBFUSCATE("/proc/%d/maps"), getpid());
+    FILE *fp = fopen(maps_path, "r");
+    if (fp == nullptr) {
+        return;
+    }
+    char line[1024];
+    while (fgets(line, sizeof(line), fp) != nullptr) {
+        for (size_t i = 0; i < sizeof(tokens) / sizeof(tokens[0]); i++) {
+            if (lineHasTokenCi(line, tokens[i])) {
+                DLOGD("found zygisk maps hit");
+                fclose(fp);
+                dpt_crash();
+                return;
+            }
+        }
+    }
+    fclose(fp);
+}
+
+// Case-insensitive substring search.
+static bool lineHasTokenCi(const char *line, const char *needle) {
+    if (line == nullptr || needle == nullptr) {
+        return false;
+    }
+    size_t nlen = strlen(needle);
+    if (nlen == 0) {
+        return false;
+    }
+    size_t hlen = strlen(line);
+    if (nlen > hlen) {
+        return false;
+    }
+    for (size_t off = 0; off + nlen <= hlen; off++) {
+        if (dpt_strncasecmp(line + off, needle, nlen) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Copy 1-based whitespace-separated field; false if missing/truncated.
+static bool lineField(const char *line, int idx, char *out, size_t outSize) {
+    if (line == nullptr || out == nullptr || outSize == 0 || idx < 1) {
+        return false;
+    }
+    int field = 1;
+    const char *p = line;
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    const char *start = p;
+    while (true) {
+        if (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\0') {
+            if (field == idx) {
+                size_t len = static_cast<size_t>(p - start);
+                if (len == 0 || len >= outSize) {
+                    return false;
+                }
+                memcpy(out, start, len);
+                out[len] = '\0';
+                return true;
+            }
+            field++;
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            start = p;
+            if (*p == '\n' || *p == '\0') {
+                return false;
+            }
+            continue;
+        }
+        p++;
+    }
+}
+
+// True when comma-separated mount options contain exact "rw".
+static bool optsHasRw(const char *opts) {
+    if (opts == nullptr) {
+        return false;
+    }
+    const char *p = opts;
+    while (*p != '\0') {
+        while (*p == ',' || *p == ' ' || *p == '\t') {
+            p++;
+        }
+        if (*p == '\0' || *p == '\n') {
+            break;
+        }
+        const char *start = p;
+        while (*p != ',' && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\0') {
+            p++;
+        }
+        size_t len = static_cast<size_t>(p - start);
+        if (len == 2 && start[0] == 'r' && start[1] == 'w') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool isSystemTarget(const char *target) {
+    if (target == nullptr) {
+        return false;
+    }
+    if (strcmp(target, "/system") == 0 || strcmp(target, "/system_ext") == 0) {
+        return true;
+    }
+    if (strncmp(target, "/system/", 8) == 0) {
+        return true;
+    }
+    return false;
+}
+
+DPT_ENCRYPT void detectRootMounts() {
+    // Derived from Duck-Detector (Apache-2.0) feature/mount evidence:
+    // systemless root bind-mounts/overlays its files over system paths.
+    const char *t_magisk = AY_OBFUSCATE("magisk");
+    const char *t_overlay = AY_OBFUSCATE("overlay");
+    const char *files[] = {
+        AY_OBFUSCATE("/proc/self/mounts"),
+        AY_OBFUSCATE("/proc/self/mountinfo"),
+    };
+    char target[256];
+    char fstype[64];
+    char opts[256];
+    char line[1024];
+    for (size_t f = 0; f < sizeof(files) / sizeof(files[0]); f++) {
+        FILE *fp = fopen(files[f], "r");
+        if (fp == nullptr) {
+            continue;
+        }
+        while (fgets(line, sizeof(line), fp) != nullptr) {
+            if (lineHasTokenCi(line, t_magisk)) {
+                DLOGD("found magisk mount hit");
+                fclose(fp);
+                dpt_crash();
+                return;
+            }
+            // mounts: <src> <target> <fstype> <opts>
+            // mountinfo: <id> ... <root> <target> <opts> ... - <fstype> <src> ...
+            bool parsed = false;
+            const char *sep = strstr(line, " - ");
+            if (sep != nullptr) {
+                // mountinfo: target = field 5, opts = field 6 (pre-separator).
+                char pre[896] = {0};
+                size_t preLen = static_cast<size_t>(sep - line);
+                if (preLen < sizeof(pre)) {
+                    memcpy(pre, line, preLen);
+                    pre[preLen] = '\0';
+                    if (lineField(pre, 5, target, sizeof(target))
+                            && lineField(pre, 6, opts, sizeof(opts))
+                            && lineField(sep + 3, 1, fstype, sizeof(fstype))) {
+                        parsed = true;
+                    }
+                }
+            } else if (lineField(line, 2, target, sizeof(target))
+                    && lineField(line, 3, fstype, sizeof(fstype))
+                    && lineField(line, 4, opts, sizeof(opts))) {
+                parsed = true;
+            }
+            if (!parsed) {
+                continue;
+            }
+            if (!isSystemTarget(target)) {
+                continue;
+            }
+            if (optsHasRw(opts) || dpt_strncasecmp(fstype, t_overlay, 7) == 0) {
+                DLOGD("found writable system mount hit");
+                fclose(fp);
+                dpt_crash();
+                return;
+            }
+        }
+        fclose(fp);
+    }
+}
+
 DPT_ENCRYPT void detectDebugger() {
     const char *status_path = AY_OBFUSCATE("/proc/self/status");
     FILE *fp = fopen(status_path, "r");
@@ -235,6 +439,12 @@ DPT_ENCRYPT void detectDebugger() {
         }
         if ((g_shell_config.risk_check_flags & FLAG_DISABLE_LSPOSED_DETECT) == 0) {
             detectLsposed();
+        }
+        if ((g_shell_config.risk_check_flags & FLAG_DISABLE_ZYGISK_DETECT) == 0) {
+            detectZygisk();
+        }
+        if ((g_shell_config.risk_check_flags & FLAG_DISABLE_MOUNT_DETECT) == 0) {
+            detectRootMounts();
         }
         if ((g_shell_config.risk_check_flags & FLAG_DISABLE_CRC_DETECT) == 0) {
             verifyLibcTextCrc();

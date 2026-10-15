@@ -39,8 +39,8 @@ ext {
     targetSdkVersion = 36
 
     // App version
-    appVersionCode = 3
-    appVersionName = "2.22.1"
+    appVersionCode = 4
+    appVersionName = "2.23.0"
 
     // Java compatibility
     shellJavaVersion = JavaVersion.VERSION_1_8

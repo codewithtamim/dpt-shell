@@ -194,7 +194,9 @@ DPT_ENCRYPT void antiRisk() {
     bool needDetect = ((g_shell_config.risk_check_flags & FLAG_DISABLE_FRIDA_DETECT) == 0)
             || ((g_shell_config.risk_check_flags & FLAG_DISABLE_CRC_DETECT) == 0)
             || ((g_shell_config.risk_check_flags & FLAG_DISABLE_ANTI_DEBUG) == 0)
-            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_LSPOSED_DETECT) == 0);
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_LSPOSED_DETECT) == 0)
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_ZYGISK_DETECT) == 0)
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_MOUNT_DETECT) == 0);
     if (needDetect) {
         detectRisk();
     }

@@ -75,6 +75,12 @@ final class DptArguments {
         if (PropertyMerge.mergeBoolean(project, "dpt.disableLsposedDetect", ext.getDisableLsposedDetect().get())) {
             args.add("--" + DptCliNames.DISABLE_LSPOSED_DETECT);
         }
+        if (PropertyMerge.mergeBoolean(project, "dpt.disableZygiskDetect", ext.getDisableZygiskDetect().get())) {
+            args.add("--" + DptCliNames.DISABLE_ZYGISK_DETECT);
+        }
+        if (PropertyMerge.mergeBoolean(project, "dpt.disableMountDetect", ext.getDisableMountDetect().get())) {
+            args.add("--" + DptCliNames.DISABLE_MOUNT_DETECT);
+        }
 
         return args;
     }
