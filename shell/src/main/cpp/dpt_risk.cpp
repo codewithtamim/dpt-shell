@@ -340,6 +340,9 @@ static bool isSystemTarget(const char *target) {
     if (strncmp(target, "/system/", 8) == 0) {
         return true;
     }
+    if (strncmp(target, "/system_ext/", 12) == 0) {
+        return true;
+    }
     return false;
 }
 

@@ -82,6 +82,16 @@ public final class LsposedCheck {
         } catch (Throwable ignored) {
             // Native not ready: fall through and check anyway.
         }
+        // Never treat our own shell classes as evidence: this class's own
+        // name contains "lsposed", so its stack frame would self-match.
+        String ownPackage = "";
+        try {
+            Package pkg = LsposedCheck.class.getPackage();
+            if (pkg != null) {
+                ownPackage = pkg.getName();
+            }
+        } catch (Throwable ignored) {
+        }
         // 1. Bridge classes reachable from app / boot loaders.
         String[] classes = bridgeClasses();
         for (String name : classes) {
@@ -100,11 +110,15 @@ public final class LsposedCheck {
         }
 
         // 2. Framework frames in current + synthetic stacks.
+        // Skips our own shell package (see above).
         String[] tokens = stackTokens();
         try {
             StackTraceElement[] stack = Thread.currentThread().getStackTrace();
             for (StackTraceElement e : stack) {
                 String cn = e.getClassName();
+                if (cn != null && !ownPackage.isEmpty() && cn.startsWith(ownPackage)) {
+                    continue;
+                }
                 for (String t : tokens) {
                     if (containsIgnoreCase(cn, t)) {
                         crash();
@@ -118,6 +132,9 @@ public final class LsposedCheck {
             Thread.UncaughtExceptionHandler h = Thread.getDefaultUncaughtExceptionHandler();
             if (h != null) {
                 String hn = h.getClass().getName();
+                if (hn != null && !ownPackage.isEmpty() && hn.startsWith(ownPackage)) {
+                    return;
+                }
                 for (String t : tokens) {
                     if (containsIgnoreCase(hn, t)) {
                         crash();
