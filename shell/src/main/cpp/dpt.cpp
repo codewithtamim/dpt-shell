@@ -34,7 +34,9 @@ static JNINativeMethod gMethods[] = {
         {"cbde",   "(Ljava/lang/ClassLoader;)V",  (void *) combineDexElements},
         {"rde",   "(Ljava/lang/ClassLoader;Ljava/lang/String;)V",        (void *) removeDexElements},
         {"ra", "(Ljava/lang/String;)Ljava/lang/Object;",                               (void *) replaceApplication},
-        {"clinit", "()V",                               (void *) clinit}
+        {"clinit", "()V",                               (void *) clinit},
+        {"olh", "()V",                               (void *) onLsposedHit},
+        {"lde", "()Z",                               (void *) isLsposedDetectEnabled}
 };
 
 DPT_ENCRYPT jobjectArray makePathElements(JNIEnv* env,const char *pathChs) {
@@ -191,7 +193,8 @@ DPT_ENCRYPT jstring readApplicationName(JNIEnv *env, jclass __unused) {
 DPT_ENCRYPT void antiRisk() {
     bool needDetect = ((g_shell_config.risk_check_flags & FLAG_DISABLE_FRIDA_DETECT) == 0)
             || ((g_shell_config.risk_check_flags & FLAG_DISABLE_CRC_DETECT) == 0)
-            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_ANTI_DEBUG) == 0);
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_ANTI_DEBUG) == 0)
+            || ((g_shell_config.risk_check_flags & FLAG_DISABLE_LSPOSED_DETECT) == 0);
     if (needDetect) {
         detectRisk();
     }
@@ -306,6 +309,14 @@ DPT_ENCRYPT void clinit(JNIEnv *env, jclass) {
     if(rand % 2 == 0) {
         veritySignature(env);
     }
+}
+
+DPT_ENCRYPT void onLsposedHit(JNIEnv *, jclass) {
+    dpt_crash();
+}
+
+DPT_ENCRYPT jboolean isLsposedDetectEnabled(JNIEnv *, jclass) {
+    return (g_shell_config.risk_check_flags & FLAG_DISABLE_LSPOSED_DETECT) == 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 DPT_ENCRYPT void callRealApplicationOnCreate(JNIEnv *env, jclass, jstring realApplicationClassName) {

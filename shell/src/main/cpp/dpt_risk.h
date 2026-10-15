@@ -24,6 +24,7 @@
 
 void dpt_crash();
 void detectFrida();
+void detectLsposed();
 void detectDebugger();
 void detectRisk();
 void junkCodeDexProtect(JNIEnv *env);

@@ -25,6 +25,7 @@ public abstract class DptExtension {
         getSmaller().convention(false);
         getVerifySign().convention(false);
         getNoSign().convention(false);
+        getDisableLsposedDetect().convention(false);
         getExcludeAbi().convention("");
         getCollectProtectedToRoot().convention(true);
     }
@@ -92,4 +93,6 @@ public abstract class DptExtension {
     public abstract Property<Boolean> getVerifySign();
 
     public abstract Property<Boolean> getNoSign();
+
+    public abstract Property<Boolean> getDisableLsposedDetect();
 }

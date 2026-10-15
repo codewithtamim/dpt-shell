@@ -152,6 +152,57 @@ DPT_ENCRYPT void detectFrida() {
     }
 }
 
+DPT_ENCRYPT void detectLsposed() {
+    // Vendored signal list from Duck-Detector (Apache-2.0)
+    // feature/lsposed/.../probes/maps_probe.cpp kSignatures.
+    const char *t_lsposed = AY_OBFUSCATE("lsposed");
+    const char *t_org_lsposed = AY_OBFUSCATE("org.lsposed");
+    const char *t_libxposed = AY_OBFUSCATE("libxposed");
+    const char *t_xposedbridge = AY_OBFUSCATE("xposedbridge");
+    const char *t_api = AY_OBFUSCATE("de.robv.android.xposed");
+    const char *t_lsplant = AY_OBFUSCATE("lsplant");
+    const char *t_lspd_dex = AY_OBFUSCATE("lspd.dex");
+    const char *t_lspd_so = AY_OBFUSCATE("lspd.so");
+    const char *t_liblspd = AY_OBFUSCATE("liblspd");
+    const char *t_edxposed = AY_OBFUSCATE("edxposed");
+    const char *t_libedxp = AY_OBFUSCATE("libedxp");
+    const char *t_lspatch = AY_OBFUSCATE("lspatch");
+    const char *tokens[] = {
+        t_lsposed, t_org_lsposed, t_libxposed, t_xposedbridge, t_api, t_lsplant,
+        t_lspd_dex, t_lspd_so, t_liblspd, t_edxposed, t_libedxp, t_lspatch
+    };
+
+    char maps_path[64] = {0};
+    snprintf(maps_path, sizeof(maps_path), AY_OBFUSCATE("/proc/%d/maps"), getpid());
+    FILE *fp = fopen(maps_path, "r");
+    if (fp == nullptr) {
+        return;
+    }
+    char line[1024];
+    while (fgets(line, sizeof(line), fp) != nullptr) {
+        for (size_t i = 0; i < sizeof(tokens) / sizeof(tokens[0]); i++) {
+            const char *needle = tokens[i];
+            size_t nlen = strlen(needle);
+            if (nlen == 0) {
+                continue;
+            }
+            size_t hlen = strlen(line);
+            if (nlen > hlen) {
+                continue;
+            }
+            for (size_t off = 0; off + nlen <= hlen; off++) {
+                if (dpt_strncasecmp(line + off, needle, nlen) == 0) {
+                    DLOGD("found lsposed maps hit");
+                    fclose(fp);
+                    dpt_crash();
+                    return;
+                }
+            }
+        }
+    }
+    fclose(fp);
+}
+
 DPT_ENCRYPT void detectDebugger() {
     const char *status_path = AY_OBFUSCATE("/proc/self/status");
     FILE *fp = fopen(status_path, "r");
@@ -181,6 +232,9 @@ DPT_ENCRYPT void detectDebugger() {
     while (true) {
         if ((g_shell_config.risk_check_flags & FLAG_DISABLE_FRIDA_DETECT) == 0) {
             detectFrida();
+        }
+        if ((g_shell_config.risk_check_flags & FLAG_DISABLE_LSPOSED_DETECT) == 0) {
+            detectLsposed();
         }
         if ((g_shell_config.risk_check_flags & FLAG_DISABLE_CRC_DETECT) == 0) {
             verifyLibcTextCrc();

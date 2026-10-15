@@ -21,6 +21,7 @@ final class DptCliNames {
     static final String SMALLER = "smaller";
     static final String PROTECT_CONFIG = "protect-config";
     static final String VERIFY_SIGN = "verify-sign";
+    static final String DISABLE_LSPOSED_DETECT = "disable-lsposed-detect";
 
     private DptCliNames() {}
 }

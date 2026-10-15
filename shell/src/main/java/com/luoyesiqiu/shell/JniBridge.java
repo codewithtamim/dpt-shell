@@ -25,6 +25,8 @@ public class JniBridge {
     public static native Object ra(String originApplicationClassName);
     public static native String rapn();
     public static native void clinit();
+    public static native void olh();
+    public static native boolean lde();
 
     public static void loadShellLibs(String workspacePath) {
         final String[] allowLibNames = {Global.SHELL_SO_NAME};

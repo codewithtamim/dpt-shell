@@ -100,9 +100,11 @@ usage: java -jar dpt.jar [option] -f <package_file>
     --disable-anti-debug     Disable runtime anti-debug.
     --disable-crc-detect     Disable runtime libc .text CRC detection.
                              
-    --disable-frida-detect   Disable runtime Frida detection.
-                             
-    --dump-code              Dump the code item of DEX and save it to
+     --disable-frida-detect   Disable runtime Frida detection.
+                              
+     --disable-lsposed-detect Disable runtime LSPosed/Xposed detection.
+                              
+     --dump-code              Dump the code item of DEX and save it to
                              .json files.
  -e,--exclude-abi <arg>      Exclude specific ABIs (comma separated, e.g.
                              x86,x86_64).

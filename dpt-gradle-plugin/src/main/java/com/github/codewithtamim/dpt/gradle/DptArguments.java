@@ -72,6 +72,9 @@ final class DptArguments {
         if (PropertyMerge.mergeBoolean(project, "dpt.noSign", ext.getNoSign().get())) {
             args.add("--" + DptCliNames.NO_SIGN);
         }
+        if (PropertyMerge.mergeBoolean(project, "dpt.disableLsposedDetect", ext.getDisableLsposedDetect().get())) {
+            args.add("--" + DptCliNames.DISABLE_LSPOSED_DETECT);
+        }
 
         return args;
     }

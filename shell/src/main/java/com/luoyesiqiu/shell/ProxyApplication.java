@@ -30,6 +30,7 @@ public class ProxyApplication extends Application {
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "dpt onCreate");
+        LsposedCheck.check();
         replaceApplication();
     }
     @Override
@@ -53,6 +54,7 @@ public class ProxyApplication extends Application {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
         Log.d(TAG,"dpt attachBaseContext classloader = " + base.getClassLoader());
+        LsposedCheck.check();
         if(!Global.sIsReplacedClassLoader) {
             ApplicationInfo applicationInfo = base.getApplicationInfo();
             if(applicationInfo == null) {

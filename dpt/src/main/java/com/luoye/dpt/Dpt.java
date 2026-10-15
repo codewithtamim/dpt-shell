@@ -124,6 +124,7 @@ public class Dpt {
         options.addOption(new Option(null, Const.OPTION_DISABLE_FRIDA_DETECT_LONG, false, "Disable runtime Frida detection.\n"));
         options.addOption(new Option(null, Const.OPTION_DISABLE_CRC_DETECT_LONG, false, "Disable runtime libc .text CRC detection.\n"));
         options.addOption(new Option(null, Const.OPTION_DISABLE_ANTI_DEBUG_LONG, false, "Disable runtime anti-debug.\n"));
+        options.addOption(new Option(null, Const.OPTION_DISABLE_LSPOSED_DETECT_LONG, false, "Disable runtime LSPosed/Xposed detection.\n"));
 
         CommandLineParser commandLineParser = new DefaultParser();
         try {
@@ -164,6 +165,9 @@ public class Dpt {
             }
             if (commandLine.hasOption(Const.OPTION_DISABLE_ANTI_DEBUG_LONG)) {
                 riskCheckFlags |= Const.FLAG_DISABLE_ANTI_DEBUG;
+            }
+            if (commandLine.hasOption(Const.OPTION_DISABLE_LSPOSED_DETECT_LONG)) {
+                riskCheckFlags |= Const.FLAG_DISABLE_LSPOSED_DETECT;
             }
 
             if(filePath.endsWith(".apk")) {

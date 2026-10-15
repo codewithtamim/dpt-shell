@@ -44,6 +44,7 @@ using namespace dpt;
 #define FLAG_DISABLE_FRIDA_DETECT (1u << 0)
 #define FLAG_DISABLE_CRC_DETECT   (1u << 1)
 #define FLAG_DISABLE_ANTI_DEBUG   (1u << 2)
+#define FLAG_DISABLE_LSPOSED_DETECT (1u << 3)
 
 struct ShellConfig {
     std::string application_name;
@@ -74,5 +75,7 @@ jobject replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused, jstring real
 void veritySignature(JNIEnv *env);
 
 void clinit(__unused JNIEnv *env, __unused jclass);
+void onLsposedHit(JNIEnv *env, jclass);
+jboolean isLsposedDetectEnabled(JNIEnv *env, jclass);
 
 #endif //DPT_DPT_H
